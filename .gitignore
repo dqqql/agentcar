@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local env
+.env
+
+# Local-only project materials
+.agent/
+prompts/
+AGENTS.md
+*.docx
+*.pdf
+
+# Keep only the shared progress doc under doc/
+doc/*
+!doc/
+!doc/开发目标与进度.md
