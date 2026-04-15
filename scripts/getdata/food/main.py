@@ -1,9 +1,19 @@
+from __future__ import annotations
+
+import sys
+import time
+from datetime import datetime
 from pathlib import Path
 import re
-import time
 
-import pandas as pd
 import requests
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+GETDATA_DIR = SCRIPT_DIR.parent
+if str(GETDATA_DIR) not in sys.path:
+    sys.path.insert(0, str(GETDATA_DIR))
+
+from output_utils import build_output_bundle, write_detail_json, write_summary_csv
 
 # 高德地图 API 配置
 AMAP_KEY = "772d9db2668f6bfb9c3238702c9b9b9e"
@@ -14,19 +24,44 @@ SHOW_FIELDS = "business,navi,photos,indoor"
 
 DEFAULT_LOCATION = "南开大学"
 DEFAULT_RADIUS = 3000
-DEFAULT_MAX_RESULTS = 100  # 测试阶段默认查 100 条，正式环境可直接改这里
-SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_OUTPUT_PATH = SCRIPT_DIR / "restaurants.xlsx"
-API_PAGE_SIZE = 25  # 高德 v5 page_size 最大值为 25
+DEFAULT_MAX_RESULTS = 100
+API_PAGE_SIZE = 25
+SUMMARY_COLUMNS = [
+    ("dataset_type", "数据类型"),
+    ("poi_id", "POI ID"),
+    ("name", "名称"),
+    ("category", "类型"),
+    ("category_code", "类型编码"),
+    ("address", "地址"),
+    ("province", "省"),
+    ("city", "市"),
+    ("district", "区"),
+    ("longitude", "经度"),
+    ("latitude", "纬度"),
+    ("distance_m", "距离(米)"),
+    ("price_avg_cny", "人均消费"),
+    ("rating", "评分"),
+    ("phone", "电话"),
+    ("business_area", "商圈"),
+    ("open_today", "今日营业时间"),
+    ("open_week", "营业时间"),
+    ("tags", "标签"),
+    ("photo_count", "图片数量"),
+    ("first_photo_url", "首图"),
+    ("source_provider", "数据来源"),
+]
 
 
 def is_coordinate(value):
-    """判断输入是否为 '经度,纬度' 格式。"""
     return bool(re.fullmatch(r"\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*", value))
 
 
+def prompt_with_default(prompt_text, default_value):
+    value = input(f"{prompt_text}（直接回车使用默认值：{default_value}）: ").strip()
+    return value or str(default_value)
+
+
 def geocode_address(address):
-    """将地点名称或地址解析为高德经纬度坐标。"""
     params = {
         "key": AMAP_KEY,
         "address": address,
@@ -49,14 +84,19 @@ def geocode_address(address):
 
 
 def normalize_location(location_input):
-    """支持直接传坐标，或传地点名/地址。"""
     if is_coordinate(location_input):
         return location_input.strip(), None
     return geocode_address(location_input)
 
 
+def split_location(location_text):
+    parts = [part.strip() for part in str(location_text or "").split(",")]
+    if len(parts) != 2:
+        return "", ""
+    return parts[0], parts[1]
+
+
 def get_pois_around(location, radius=DEFAULT_RADIUS, max_results=DEFAULT_MAX_RESULTS):
-    """获取指定位置周围的餐饮 POI，并按 max_results 截断。"""
     pois = []
     page_num = 1
     max_results = max(1, int(max_results))
@@ -109,86 +149,78 @@ def first_photo_url(photos):
     return str(photos[0].get("url", ""))
 
 
-def resolve_output_path(output_text):
-    """把用户输入的文件名解析成最终输出路径，并自动补全 xlsx 后缀。"""
-    output_path = Path(output_text).expanduser()
-
-    if not output_path.suffix:
-        output_path = output_path.with_suffix(".xlsx")
-
-    if not output_path.is_absolute():
-        output_path = DEFAULT_OUTPUT_PATH.parent / output_path
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    return output_path
-
-
-def save_to_excel(pois, filename="restaurants.xlsx"):
-    """将 POI 数据保存到 Excel 文件。"""
-    if not pois:
-        print("没有数据可保存")
-        return
-
-    data = []
-    for poi in pois:
-        business = poi.get("business") or {}
-        navi = poi.get("navi") or {}
-        indoor = poi.get("indoor") or {}
-        photos = poi.get("photos") or []
-
-        data.append(
-            {
-                "名称": str(poi.get("name", "")),
-                "地址": str(poi.get("address", "")),
-                "类型": str(poi.get("type", "")),
-                "类型编码": str(poi.get("typecode", "")),
-                "距离(米)": str(poi.get("distance", "")),
-                "人均消费": str(business.get("cost", "")),
-                "评分": str(business.get("rating", "")),
-                "电话": str(business.get("tel", "")),
-                "今日营业时间": str(business.get("opentime_today", "")),
-                "营业时间": str(business.get("opentime_week", "")),
-                "特色内容": str(business.get("tag", "")),
-                "主标签": str(business.get("keytag", "")),
-                "补充标签": str(business.get("rectag", "")),
-                "商圈": str(business.get("business_area", "")),
-                "别名": str(business.get("alias", "")),
-                "省": str(poi.get("pname", "")),
-                "市": str(poi.get("cityname", "")),
-                "区": str(poi.get("adname", "")),
-                "省编码": str(poi.get("pcode", "")),
-                "市编码": str(poi.get("citycode", "")),
-                "区编码": str(poi.get("adcode", "")),
-                "坐标": str(poi.get("location", "")),
-                "入口坐标": str(navi.get("entr_location", "")),
-                "导航网格": str(navi.get("gridcode", "")),
-                "室内地图": str(indoor.get("indoor_map", "")),
-                "首图": first_photo_url(photos),
-                "图片数量": str(len(photos)),
-                "图片链接": join_photo_urls(photos),
-                "POI ID": str(poi.get("id", "")),
-            }
+def build_food_record(poi):
+    business = poi.get("business") or {}
+    navi = poi.get("navi") or {}
+    indoor = poi.get("indoor") or {}
+    photos = poi.get("photos") or []
+    longitude, latitude = split_location(poi.get("location", ""))
+    tags = [
+        tag
+        for tag in (
+            business.get("tag"),
+            business.get("keytag"),
+            business.get("rectag"),
         )
+        if tag
+    ]
 
-    df = pd.DataFrame(data)
+    return {
+        "dataset_type": "food",
+        "poi_id": str(poi.get("id", "")),
+        "name": str(poi.get("name", "")),
+        "category": str(poi.get("type", "")),
+        "category_code": str(poi.get("typecode", "")),
+        "address": str(poi.get("address", "")),
+        "province": str(poi.get("pname", "")),
+        "city": str(poi.get("cityname", "")),
+        "district": str(poi.get("adname", "")),
+        "province_code": str(poi.get("pcode", "")),
+        "city_code": str(poi.get("citycode", "")),
+        "district_code": str(poi.get("adcode", "")),
+        "longitude": longitude,
+        "latitude": latitude,
+        "location_raw": str(poi.get("location", "")),
+        "distance_m": str(poi.get("distance", "")),
+        "price_avg_cny": str(business.get("cost", "")),
+        "rating": str(business.get("rating", "")),
+        "phone": str(business.get("tel", "")),
+        "open_today": str(business.get("opentime_today", "")),
+        "open_week": str(business.get("opentime_week", "")),
+        "business_area": str(business.get("business_area", "")),
+        "alias": str(business.get("alias", "")),
+        "tags": " | ".join(str(tag) for tag in tags),
+        "entrance_location": str(navi.get("entr_location", "")),
+        "gridcode": str(navi.get("gridcode", "")),
+        "indoor_map": str(indoor.get("indoor_map", "")),
+        "photo_count": len(photos),
+        "first_photo_url": first_photo_url(photos),
+        "photo_urls": join_photo_urls(photos),
+        "source_provider": "Amap Place Around API",
+        "source_raw": poi,
+    }
 
-    try:
-        df.to_excel(filename, index=False, engine="openpyxl")
-        print(f"数据已保存到 {filename}")
-    except Exception as exc:
-        print(f"保存文件时出错: {exc}")
-        csv_filename = filename.replace(".xlsx", ".csv")
-        df.to_csv(csv_filename, index=False, encoding="utf_8_sig")
-        print(f"已将数据保存为 CSV 格式: {csv_filename}")
 
-
-def prompt_with_default(prompt_text, default_value):
-    value = input(f"{prompt_text}（直接回车使用默认值：{default_value}）: ").strip()
-    return value or str(default_value)
+def save_outputs(records, query):
+    bundle_dir, bundle_name = build_output_bundle(
+        SCRIPT_DIR,
+        "food",
+        query.get("location_label") or query.get("location_input"),
+    )
+    detail_payload = {
+        "dataset_type": "food",
+        "bundle_name": bundle_name,
+        "generated_at": datetime.now().isoformat(),
+        "query": query,
+        "record_count": len(records),
+        "records": records,
+    }
+    summary_path = write_summary_csv(records, SUMMARY_COLUMNS, bundle_dir)
+    detail_path = write_detail_json(detail_payload, bundle_dir)
+    return summary_path, detail_path
 
 
 def prompt_user_inputs():
-    """运行时询问用户查询参数。"""
     location = prompt_with_default(
         "请输入要查询的地点名称、地址或经纬度",
         DEFAULT_LOCATION,
@@ -196,10 +228,6 @@ def prompt_user_inputs():
 
     radius_text = prompt_with_default("请输入搜索半径（米）", DEFAULT_RADIUS)
     max_results_text = prompt_with_default("请输入最多返回多少条", DEFAULT_MAX_RESULTS)
-    output = prompt_with_default(
-        "请输入输出文件名或完整路径",
-        str(DEFAULT_OUTPUT_PATH),
-    )
 
     try:
         radius = int(radius_text)
@@ -217,7 +245,6 @@ def prompt_user_inputs():
         "location": location,
         "radius": radius,
         "max_results": max_results,
-        "output": str(resolve_output_path(output)),
     }
 
 
@@ -231,11 +258,10 @@ def main():
         return
 
     if geocode_info:
-        print(
-            f"已解析地点: {geocode_info.get('formatted_address', user_inputs['location'])} "
-            f"-> {center_location}"
-        )
+        location_label = geocode_info.get("formatted_address", user_inputs["location"])
+        print(f"已解析地点: {location_label} -> {center_location}")
     else:
+        location_label = user_inputs["location"]
         print(f"使用坐标查询: {center_location}")
 
     print(
@@ -248,11 +274,25 @@ def main():
         max_results=user_inputs["max_results"],
     )
 
-    if restaurants:
-        print(f"共获取到 {len(restaurants)} 个餐饮场所")
-        save_to_excel(restaurants, user_inputs["output"])
-    else:
+    if not restaurants:
         print("未获取到任何餐饮场所数据")
+        return
+
+    records = [build_food_record(poi) for poi in restaurants]
+    summary_path, detail_path = save_outputs(
+        records,
+        {
+            "location_input": user_inputs["location"],
+            "location_label": location_label,
+            "center_location": center_location,
+            "radius_m": user_inputs["radius"],
+            "max_results": user_inputs["max_results"],
+        },
+    )
+    print(
+        f"共获取到 {len(records)} 个餐饮场所。"
+        f"汇总文件已保存到 {summary_path}，详细文件已保存到 {detail_path}。"
+    )
 
 
 if __name__ == "__main__":

@@ -37,3 +37,14 @@ AGENTS.md
 doc/*
 !doc/
 !doc/开发目标与进度.md
+!doc/流程图版开发进度.md
+
+# Generated data assets under scripts/getdata
+scripts/getdata/**/__pycache__/
+scripts/getdata/**/*.pyc
+scripts/getdata/**/output/
+scripts/getdata/place/data/
+scripts/getdata/food/*.xlsx
+scripts/getdata/food/*.csv
+scripts/getdata/hotel/*.csv
+scripts/getdata/hotel/*.json

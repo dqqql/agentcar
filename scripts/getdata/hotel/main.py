@@ -6,6 +6,7 @@ import json
 import math
 import random
 import re
+import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -13,14 +14,20 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+GETDATA_DIR = SCRIPT_DIR.parent
+if str(GETDATA_DIR) not in sys.path:
+    sys.path.insert(0, str(GETDATA_DIR))
+
+from output_utils import build_output_bundle, write_detail_json, write_summary_csv
+
 DEFAULT_LOCATION = "Wangfujing, Beijing"
 DEFAULT_RADIUS = 4000
 DEFAULT_MAX_RESULTS = 20
 DEFAULT_NIGHTS = 1
 DEFAULT_TOURISM_TYPES = ("hotel", "hostel", "guest_house", "motel", "resort")
 USER_AGENT = "agentcar-hotel-prototype/1.0"
-SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "output"
+DEFAULT_OUTPUT_LABEL = "hotel_candidates"
 
 TOURISM_TYPE_LABELS = {
     "hotel": "酒店",
@@ -49,6 +56,39 @@ AMENITY_LABELS = {
     "family_friendly": "亲子友好",
     "metro_access": "地铁便利",
 }
+SUMMARY_COLUMNS = [
+    ("dataset_type", "数据类型"),
+    ("hotel_id", "酒店ID"),
+    ("name", "酒店名称"),
+    ("tourism_type", "酒店类型"),
+    ("location_label", "目的地"),
+    ("latitude", "纬度"),
+    ("longitude", "经度"),
+    ("distance_m", "距中心点距离(米)"),
+    ("address", "地址"),
+    ("phone", "电话"),
+    ("website", "网站"),
+    ("stars", "星级"),
+    ("rating", "评分"),
+    ("review_count", "评论数"),
+    ("amenities_text", "设施列表"),
+    ("check_in_date", "入住日期"),
+    ("check_out_date", "离店日期"),
+    ("nights", "入住晚数"),
+    ("total_rooms", "总房量"),
+    ("remaining_rooms", "剩余房量"),
+    ("availability_status", "库存状态"),
+    ("price_min_cny", "最低价(元)"),
+    ("price_max_cny", "最高价(元)"),
+    ("room_types_count", "房型数量"),
+    ("room_types_summary", "房型概览"),
+    ("room_types_json", "房型明细JSON"),
+    ("source_provider", "数据来源"),
+    ("source_osm_id", "来源OSM_ID"),
+    ("source_fetched_at", "抓取时间"),
+    ("source_json", "来源信息JSON"),
+    ("full_hotel_json", "完整详情JSON"),
+]
 
 
 def prompt_with_default(prompt_text: str, default_value: Any) -> str:
@@ -548,48 +588,14 @@ def format_room_types_for_csv(room_types: list[dict[str, Any]]) -> str:
     return "；".join(formatted_parts)
 
 
-def write_summary_csv(hotels: list[dict[str, Any]], output_path: Path) -> None:
-    columns = [
-        ("hotel_id", "酒店ID"),
-        ("name", "酒店名称"),
-        ("tourism_type", "酒店类型"),
-        ("location_label", "目的地"),
-        ("latitude", "纬度"),
-        ("longitude", "经度"),
-        ("distance_m", "距中心点距离(米)"),
-        ("address", "地址"),
-        ("phone", "电话"),
-        ("website", "网站"),
-        ("stars", "星级"),
-        ("rating", "评分"),
-        ("review_count", "评论数"),
-        ("amenities_text", "设施列表"),
-        ("check_in_date", "入住日期"),
-        ("check_out_date", "离店日期"),
-        ("nights", "入住晚数"),
-        ("total_rooms", "总房量"),
-        ("remaining_rooms", "剩余房量"),
-        ("availability_status", "库存状态"),
-        ("price_min_cny", "最低价(元)"),
-        ("price_max_cny", "最高价(元)"),
-        ("room_types_count", "房型数量"),
-        ("room_types_summary", "房型概览"),
-        ("room_types_json", "房型明细JSON"),
-        ("source_provider", "数据来源"),
-        ("source_osm_id", "来源OSM_ID"),
-        ("source_fetched_at", "抓取时间"),
-        ("source_json", "来源信息JSON"),
-        ("full_hotel_json", "完整详情JSON"),
-    ]
-
-    with output_path.open("w", encoding="utf-8-sig", newline="") as file_obj:
-        writer = csv.writer(file_obj)
-        writer.writerow([label for _, label in columns])
-
-        for hotel in hotels:
-            source = hotel.get("source") or {}
-            room_types = hotel.get("room_types", [])
-            row = {
+def build_hotel_summary_rows(hotels: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for hotel in hotels:
+        source = hotel.get("source") or {}
+        room_types = hotel.get("room_types", [])
+        rows.append(
+            {
+                "dataset_type": "hotel",
                 "hotel_id": hotel.get("hotel_id", ""),
                 "name": hotel.get("name", ""),
                 "tourism_type": translate_label(str(hotel.get("tourism_type", "")), TOURISM_TYPE_LABELS),
@@ -623,28 +629,33 @@ def write_summary_csv(hotels: list[dict[str, Any]], output_path: Path) -> None:
                 "source_json": json.dumps(source, ensure_ascii=False),
                 "full_hotel_json": json.dumps(hotel, ensure_ascii=False),
             }
-            writer.writerow([row.get(key, "") for key, _ in columns])
+        )
+    return rows
 
 
-def build_output_prefix(output_text: str, check_in_date: date) -> Path:
-    output_path = Path(output_text).expanduser()
-    if not output_path.is_absolute():
-        output_path = DEFAULT_OUTPUT_DIR / output_path
-
-    if output_path.suffix:
-        output_path = output_path.with_suffix("")
-
-    stamp = check_in_date.strftime("%Y%m%d")
-    return output_path.parent / f"{output_path.name}_{stamp}"
-
-
-def save_outputs(hotels: list[dict[str, Any]], output_prefix: Path) -> tuple[Path, Path]:
-    output_prefix.parent.mkdir(parents=True, exist_ok=True)
-    summary_path = output_prefix.with_name(f"{output_prefix.name}_summary.csv")
-    detail_path = output_prefix.with_name(f"{output_prefix.name}_detail.json")
-
-    write_summary_csv(hotels, summary_path)
-    detail_path.write_text(json.dumps(hotels, ensure_ascii=False, indent=2), encoding="utf-8")
+def save_outputs(
+    hotels: list[dict[str, Any]],
+    *,
+    output_label: str,
+    query: dict[str, Any],
+) -> tuple[Path, Path]:
+    bundle_dir, bundle_name = build_output_bundle(
+        SCRIPT_DIR,
+        "hotel",
+        output_label,
+        query.get("check_in_date", ""),
+    )
+    summary_rows = build_hotel_summary_rows(hotels)
+    detail_payload = {
+        "dataset_type": "hotel",
+        "bundle_name": bundle_name,
+        "generated_at": datetime.now().isoformat(),
+        "query": query,
+        "record_count": len(hotels),
+        "records": hotels,
+    }
+    summary_path = write_summary_csv(summary_rows, SUMMARY_COLUMNS, bundle_dir)
+    detail_path = write_detail_json(detail_payload, bundle_dir)
     return summary_path, detail_path
 
 
@@ -656,7 +667,7 @@ def prompt_user_inputs() -> dict[str, Any]:
     max_results_text = prompt_with_default("请输入最多生成多少家酒店", DEFAULT_MAX_RESULTS)
     check_in_text = prompt_with_default("请输入入住日期（YYYY-MM-DD）", default_check_in.isoformat())
     nights_text = prompt_with_default("请输入入住晚数", DEFAULT_NIGHTS)
-    output_text = prompt_with_default("请输入输出文件前缀", "hotel_candidates")
+    output_text = prompt_with_default("请输入输出目录标识", DEFAULT_OUTPUT_LABEL)
 
     try:
         radius = max(500, int(radius_text))
@@ -688,7 +699,7 @@ def prompt_user_inputs() -> dict[str, Any]:
         "max_results": max_results,
         "check_in_date": check_in_date,
         "nights": nights,
-        "output_prefix": build_output_prefix(output_text, check_in_date),
+        "output_label": output_text,
     }
 
 
@@ -752,7 +763,18 @@ def main() -> None:
         print("未能生成酒店数据集。")
         return
 
-    summary_path, detail_path = save_outputs(hotels, user_inputs["output_prefix"])
+    summary_path, detail_path = save_outputs(
+        hotels,
+        output_label=user_inputs["output_label"],
+        query={
+            "location_input": user_inputs["location"],
+            "radius_m": user_inputs["radius"],
+            "max_results": user_inputs["max_results"],
+            "check_in_date": user_inputs["check_in_date"].isoformat(),
+            "nights": user_inputs["nights"],
+            "location_label": location_label,
+        },
+    )
     print(
         f"已在 {location_label} 周边生成 {len(hotels)} 家酒店候选数据。"
         f"汇总文件已保存到 {summary_path}，详细文件已保存到 {detail_path}。"
