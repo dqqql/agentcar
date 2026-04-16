@@ -17,6 +17,7 @@ python -m uvicorn backend.app.main:app --reload
 - `GET /`
 - `GET /health`
 - `POST /api/asr/transcribe`
+- `POST /api/extract/keywords`
 
 调试地址：
 
@@ -27,8 +28,11 @@ python -m uvicorn backend.app.main:app --reload
 ASR 模块目录：
 
 - `backend/app/api/asr.py`：语音识别接口
+- `backend/app/api/extract.py`：关键词提取接口
 - `backend/app/services/asr/`：语音识别服务层
+- `backend/app/services/extract/`：关键词提取服务层
 - `backend/app/models/asr.py`：语音识别返回模型
+- `backend/app/models/extract.py`：关键词提取返回模型
 - `backend/app/core/config.py`：ASR 配置
 
 ASR 使用方式：
@@ -51,6 +55,19 @@ ASR 输出位置：
 
 - 临时音频：`backend/.tmp/asr/`
 - 识别文本：`data/asr_text/`
+
+关键词提取使用方式：
+
+1. 启动后端服务
+2. 打开 `/docs`
+3. 在 `POST /api/extract/keywords` 里二选一：
+   - 直接传 `text`
+   - 传 `text_file_path`
+4. 接口返回结构化关键词结果和结果文件路径
+
+关键词提取输出位置：
+
+- 提取结果：`data/extract_result/`
 
 ## 数据脚本模块
 
@@ -131,6 +148,7 @@ python scripts/getdata/hotel/main.py
 ## 数据目录
 
 - `data/asr_text/`：语音识别后的纯文本
+- `data/extract_result/`：关键词提取后的结构化 JSON
 - `data/mock/`：后续 mock 数据
 
 ## 文档目录

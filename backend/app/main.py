@@ -3,12 +3,14 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from backend.app.api.asr import router as asr_router
+from backend.app.api.extract import router as extract_router
 from backend.app.core.config import get_settings
 from backend.app.models.common import ApiResponse
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
 app.include_router(asr_router)
+app.include_router(extract_router)
 
 
 def build_response(message: str, data: dict) -> ApiResponse:
@@ -25,7 +27,7 @@ async def root() -> ApiResponse:
             "status": "running",
             "modules": {
                 "asr": "ready",
-                "keyword_extraction": "planned",
+                "keyword_extraction": "ready",
                 "ranking_model": "planned",
                 "frontend_output": "planned",
             },

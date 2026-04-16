@@ -48,3 +48,9 @@ scripts/getdata/food/*.xlsx
 scripts/getdata/food/*.csv
 scripts/getdata/hotel/*.csv
 scripts/getdata/hotel/*.json
+
+# Runtime data outputs
+data/asr_text/*
+!data/asr_text/.gitkeep
+data/extract_result/*
+!data/extract_result/.gitkeep
