@@ -69,6 +69,19 @@ ASR 输出位置：
 
 - 提取结果：`data/extract_result/`
 
+关键词提取结果中包含：
+
+- 基础提取字段：目的地、日期、预算、人数、景点/餐饮/酒店偏好、出行风格
+- `algorithm_input`：给排序模型输入端使用的结构化对象
+
+`algorithm_input` 当前包含：
+
+- `search_context`
+- `objective_weights`
+- `subjective_preference`
+- `fusion_config`
+- `sequence_model_input`
+
 ## 数据脚本模块
 
 数据脚本目录：

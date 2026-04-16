@@ -6,7 +6,16 @@ from datetime import datetime
 from pathlib import Path
 
 from backend.app.core.config import Settings, get_settings
-from backend.app.models.extract import ExtractRequest, ExtractResult
+from backend.app.models.extract import (
+    AlgorithmInput,
+    ExtractRequest,
+    ExtractResult,
+    FusionConfig,
+    ObjectiveWeightConfig,
+    SearchContext,
+    SequenceModelInput,
+    SubjectivePreferenceInput,
+)
 from backend.app.services.extract.rule_extractor import RuleExtractor
 
 
@@ -22,6 +31,7 @@ class ExtractService:
             source_type=source_type,
             source_file_path=source_file_path,
         )
+        result.algorithm_input = self._build_algorithm_input(result)
         result.result_file_path = str(self._save_result(result, output_name_hint))
         return result
 
@@ -62,6 +72,44 @@ class ExtractService:
             encoding="utf-8",
         )
         return output_path
+
+    def _build_algorithm_input(self, result: ExtractResult) -> AlgorithmInput:
+        return AlgorithmInput(
+            search_context=SearchContext(
+                destination_text=result.destination,
+                search_radius_m=self._infer_search_radius(result),
+                candidate_types=["spot", "food", "hotel"],
+                date_texts=result.dates,
+                people_count=result.people_count,
+            ),
+            objective_weights=ObjectiveWeightConfig(),
+            subjective_preference=SubjectivePreferenceInput(
+                destination=result.destination,
+                budget_text=result.budget_text,
+                budget_min_cny=result.budget_min_cny,
+                budget_max_cny=result.budget_max_cny,
+                people_count=result.people_count,
+                spot_keywords=result.spot_keywords,
+                food_keywords=result.food_keywords,
+                hotel_keywords=result.hotel_keywords,
+                travel_styles=result.travel_styles,
+                preference_terms=result.detected_keywords,
+            ),
+            fusion_config=FusionConfig(),
+            sequence_model_input=SequenceModelInput(
+                has_history=False,
+                historical_poi_ids=[],
+                time_context=result.dates,
+            ),
+        )
+
+    @staticmethod
+    def _infer_search_radius(result: ExtractResult) -> int:
+        if "自驾" in result.travel_styles:
+            return 12000
+        if result.destination and any(keyword in result.destination for keyword in ("大学", "机场")):
+            return 3000
+        return 5000
 
 
 def build_extract_service(settings: Settings | None = None) -> ExtractService:
