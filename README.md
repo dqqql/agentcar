@@ -18,6 +18,7 @@ python -m uvicorn backend.app.main:app --reload
 - `GET /health`
 - `POST /api/asr/transcribe`
 - `POST /api/extract/keywords`
+- `POST /api/adapter/candidate-pool`
 
 调试地址：
 
@@ -29,10 +30,13 @@ ASR 模块目录：
 
 - `backend/app/api/asr.py`：语音识别接口
 - `backend/app/api/extract.py`：关键词提取接口
+- `backend/app/api/adapter.py`：候选池适配接口
 - `backend/app/services/asr/`：语音识别服务层
 - `backend/app/services/extract/`：关键词提取服务层
+- `backend/app/services/adapter/`：候选池适配服务层
 - `backend/app/models/asr.py`：语音识别返回模型
 - `backend/app/models/extract.py`：关键词提取返回模型
+- `backend/app/models/adapter.py`：候选池适配返回模型
 - `backend/app/core/config.py`：ASR 配置
 
 ASR 使用方式：
@@ -81,6 +85,32 @@ ASR 输出位置：
 - `subjective_preference`
 - `fusion_config`
 - `sequence_model_input`
+
+候选池适配使用方式：
+
+1. 先准备好关键词提取结果和 `place / food / hotel` 的 `detail.json`
+2. 启动后端服务
+3. 打开 `/docs`
+4. 调用 `POST /api/adapter/candidate-pool`
+5. 可选传入：
+   - `extract_result_path`
+   - `place_detail_path`
+   - `food_detail_path`
+   - `hotel_detail_path`
+6. 如果不传三类 detail 路径，接口会默认读取三个模块下最新一次 output 的 `detail.json`
+7. 如果提取结果里的目的地无法直接解析坐标，适配层会优先回退到 `food / hotel output` 中的查询中心作为候选池中心点
+
+候选池适配输出位置：
+
+- `data/candidate_pool/`
+
+候选池适配结果中包含：
+
+- 更新后的 `algorithm_input`
+- `spot_candidates`
+- `food_candidates`
+- `hotel_candidates`
+- `meta`
 
 ## 数据脚本模块
 
@@ -162,6 +192,7 @@ python scripts/getdata/hotel/main.py
 
 - `data/asr_text/`：语音识别后的纯文本
 - `data/extract_result/`：关键词提取后的结构化 JSON
+- `data/candidate_pool/`：统一候选池结果
 - `data/mock/`：后续 mock 数据
 
 ## 文档目录

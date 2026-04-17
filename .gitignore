@@ -54,3 +54,5 @@ data/asr_text/*
 !data/asr_text/.gitkeep
 data/extract_result/*
 !data/extract_result/.gitkeep
+data/candidate_pool/*
+!data/candidate_pool/.gitkeep

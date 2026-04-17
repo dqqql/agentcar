@@ -16,6 +16,7 @@ class Settings:
     asr_text_output_dir: Path = Path(os.getenv("ASR_TEXT_OUTPUT_DIR", "data/asr_text"))
     asr_max_file_size_mb: int = int(os.getenv("ASR_MAX_FILE_SIZE_MB", "25"))
     extract_output_dir: Path = Path(os.getenv("EXTRACT_OUTPUT_DIR", "data/extract_result"))
+    adapter_output_dir: Path = Path(os.getenv("ADAPTER_OUTPUT_DIR", "data/candidate_pool"))
     funasr_model: str = os.getenv("FUNASR_MODEL", "paraformer-zh")
     funasr_vad_model: str = os.getenv("FUNASR_VAD_MODEL", "fsmn-vad")
     funasr_punc_model: str = os.getenv("FUNASR_PUNC_MODEL", "ct-punc")

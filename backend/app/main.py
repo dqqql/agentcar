@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from backend.app.api.adapter import router as adapter_router
 from backend.app.api.asr import router as asr_router
 from backend.app.api.extract import router as extract_router
 from backend.app.core.config import get_settings
@@ -11,6 +12,7 @@ settings = get_settings()
 app = FastAPI(title=settings.app_name)
 app.include_router(asr_router)
 app.include_router(extract_router)
+app.include_router(adapter_router)
 
 
 def build_response(message: str, data: dict) -> ApiResponse:
@@ -28,6 +30,7 @@ async def root() -> ApiResponse:
             "modules": {
                 "asr": "ready",
                 "keyword_extraction": "ready",
+                "candidate_adapter": "ready",
                 "ranking_model": "planned",
                 "frontend_output": "planned",
             },
