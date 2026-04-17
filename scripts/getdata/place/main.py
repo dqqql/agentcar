@@ -12,7 +12,7 @@ if str(GETDATA_DIR) not in sys.path:
     sys.path.insert(0, str(GETDATA_DIR))
 
 from output_utils import build_output_bundle, write_detail_json, write_summary_csv
-from transCoordinateSystem import gcj02_to_wgs84, gcj02_to_bd09
+from coordTransform_utils import gcj02_to_wgs84, gcj02_to_bd09
 #from shp import trans_point_to_shp
 
 amap_web_key = '3ff0b1a041f41b85422d9bc00e68f7a7' # 请在此处填入您的高德API Key
