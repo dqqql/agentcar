@@ -136,7 +136,15 @@ def run_interactive_script(
             f"stderr:\n{tail_text(stderr_text)}"
         )
 
-    latest_detail_path = resolve_new_detail_path(output_root, existing_dirs)
+    try:
+        latest_detail_path = resolve_new_detail_path(output_root, existing_dirs)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"{dataset} 脚本执行后未产出可用结果。\n"
+            f"{exc}\n"
+            f"stdout:\n{tail_text(stdout_text)}\n"
+            f"stderr:\n{tail_text(stderr_text)}"
+        ) from exc
     return latest_detail_path, completed
 
 

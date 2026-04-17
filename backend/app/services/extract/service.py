@@ -65,12 +65,14 @@ class ExtractService:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         safe_hint = re.sub(r'[<>:"/\\|?*\s]+', "_", name_hint).strip("._") or "extract"
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         output_path = output_dir / f"{timestamp}_{safe_hint}.json"
-        output_path.write_text(
+        temp_path = output_path.with_suffix(".tmp")
+        temp_path.write_text(
             json.dumps(result.model_dump(), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        temp_path.replace(output_path)
         return output_path
 
     def _build_algorithm_input(self, result: ExtractResult) -> AlgorithmInput:
