@@ -56,3 +56,8 @@ data/extract_result/*
 !data/extract_result/.gitkeep
 data/candidate_pool/*
 !data/candidate_pool/.gitkeep
+
+# Test pipeline outputs
+tests/__pycache__/
+tests/output/*
+!tests/output/.gitkeep

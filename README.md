@@ -199,6 +199,33 @@ python scripts/getdata/hotel/main.py
 
 - `doc/流程图版开发进度.md`：当前进度文档
 
+## 测试联调脚本
+
+入口：
+- `tests/run_random_pipeline_demo.py`
+
+用途：
+- 随机生成一段旅游需求文本
+- 自动调用关键词提取模块
+- 自动运行 `place / food / hotel` 三个采集脚本
+- 自动调用候选池适配层
+- 输出一份“可直接输入算法”的候选列表
+
+运行方式：
+```bash
+python tests/run_random_pipeline_demo.py
+```
+
+可选参数：
+```bash
+python tests/run_random_pipeline_demo.py --seed 7
+```
+
+输出位置：
+- 联调汇总：`tests/output/`
+- 关键词提取结果：`data/extract_result/`
+- 候选池结果：`data/candidate_pool/`
+
 ## 依赖安装
 
 ```bash
