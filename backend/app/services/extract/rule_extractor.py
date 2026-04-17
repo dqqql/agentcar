@@ -22,6 +22,11 @@ DESTINATION_SUFFIXES = (
     "大学",
     "机场",
 )
+DESTINATION_TRAILING_PATTERN = re.compile(
+    r"(旅游|旅行|出差|玩耍|玩|住|待|看看|逛逛|逛|吃吃|吃|打卡|拍照|散心|度假|"
+    r"这周末|周末|今天|明天|后天|下周末|下周|本周|"
+    r"[一二两三四五六七八九十\d]+天.*)$"
+)
 COMMON_DESTINATIONS = [
     "北京",
     "上海",
@@ -184,11 +189,18 @@ class RuleExtractor:
         return None
 
     def _clean_destination(self, candidate: str) -> str | None:
-        cleaned = re.sub(r"(旅游|旅行|出差|玩|住|待|看看)$", "", candidate).strip("，。；、 ")
+        cleaned = candidate.strip("，。；、 ")
+        cleaned = DESTINATION_TRAILING_PATTERN.sub("", cleaned).strip("，。；、 ")
         if len(cleaned) < 2:
             return None
+        for city in COMMON_DESTINATIONS:
+            if city in cleaned:
+                return city
         if cleaned in COMMON_DESTINATIONS:
             return cleaned
+        match = re.match(r"^(.+?(?:市|省|区|县|镇|州|岛|湾|山|大学|机场))", cleaned)
+        if match:
+            return match.group(1)
         if cleaned.endswith(DESTINATION_SUFFIXES):
             return cleaned
         return cleaned
