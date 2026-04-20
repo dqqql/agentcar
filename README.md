@@ -19,6 +19,7 @@ python -m uvicorn backend.app.main:app --reload
 - `POST /api/asr/transcribe`
 - `POST /api/extract/keywords`
 - `POST /api/adapter/candidate-pool`
+- `POST /api/pipeline/gather-candidates`
 
 调试地址：
 
@@ -231,3 +232,29 @@ python tests/run_random_pipeline_demo.py --seed 7
 ```bash
 python -m pip install -r requirements.txt
 ```
+
+## Ranking Scaffold
+
+The backend now includes a dedicated scaffold for the core ranking layer.
+
+New files:
+- `backend/app/models/ranking.py`
+- `backend/app/services/ranking/service.py`
+- `backend/app/services/ranking/__init__.py`
+
+Recommended pipeline:
+
+```text
+extract -> adapter -> ranking -> frontend
+```
+
+Current responsibilities:
+- `extract`: parse user intent and produce `algorithm_input`
+- `adapter`: unify `place / food / hotel` records into a candidate pool
+- `ranking`: reserved for normalization, scoring, sorting, and Top N assembly
+- `frontend`: should gradually consume backend ranking output instead of keeping final scoring logic locally
+
+Notes:
+- The `ranking` layer is scaffolded but not yet wired into `pipeline`
+- The frontend still uses temporary display-oriented scoring
+- The next implementation step should happen in `backend/app/services/ranking/service.py`
