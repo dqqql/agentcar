@@ -11,6 +11,7 @@ import {
   Sparkle,
   Target,
   WarningCircle,
+  X,
 } from '@phosphor-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -40,6 +41,9 @@ interface Candidate {
   rating?: number | null;
   price_value_cny?: number | null;
   tags?: string[];
+  final_score?: number | null;
+  rank?: number | null;
+  score_breakdown?: Record<string, number>;
 }
 
 interface Message {
@@ -66,6 +70,11 @@ interface RoutePlan {
 const api = axios.create({ baseURL: '/api' });
 
 const routeBadgeLabels = ['优先推荐', '平衡路线', '补充路线'];
+const routeStopDefinitions = [
+  { key: 'spot', label: '景点' },
+  { key: 'food', label: '餐饮' },
+  { key: 'hotel', label: '酒店' },
+] as const;
 
 const tagNameMap: Record<string, string> = {
   air_conditioning: '空调',
@@ -122,13 +131,6 @@ const getVisibleCandidateTags = (candidate: Candidate | null, limit = 2) => {
     return ['餐饮候选'];
   }
   return ['景点候选'];
-};
-
-const formatAddress = (address?: string | null) => {
-  if (!address) {
-    return '地址待补充';
-  }
-  return address.length > 18 ? `${address.slice(0, 18)}...` : address;
 };
 
 const formatDistance = (distance?: number | null) => {
@@ -219,6 +221,15 @@ const getCandidateScore = (candidate: Candidate, tags: ExtractTags | null) => {
   return ratingScore + distanceScore + priceScore;
 };
 
+const getDisplayCandidateScore = (candidate: Candidate, tags: ExtractTags | null) =>
+  candidate.final_score != null ? candidate.final_score * 100 : getCandidateScore(candidate, tags);
+
+const getRouteStops = (route: RoutePlan) =>
+  routeStopDefinitions.map((item) => ({
+    ...item,
+    candidate: route[item.key],
+  }));
+
 const pickCandidate = (items: Candidate[], preferredIndex: number) => {
   if (items.length === 0) {
     return null;
@@ -237,8 +248,20 @@ const buildRoutePlans = (candidates: Candidate[], tags: ExtractTags | null): Rou
     hotel: candidates.filter((candidate) => candidate.poi_type === 'hotel'),
   };
 
-  const sortByScore = (items: Candidate[]) =>
-    [...items].sort((left, right) => getCandidateScore(right, tags) - getCandidateScore(left, tags));
+  const hasBackendRanking = candidates.some((candidate) => candidate.final_score != null);
+
+  const sortByScore = (items: Candidate[]) => {
+    if (hasBackendRanking) {
+      return [...items].sort((left, right) => {
+        const scoreDelta = (right.final_score ?? -1) - (left.final_score ?? -1);
+        if (scoreDelta !== 0) {
+          return scoreDelta;
+        }
+        return (left.rank ?? Number.MAX_SAFE_INTEGER) - (right.rank ?? Number.MAX_SAFE_INTEGER);
+      });
+    }
+    return [...items].sort((left, right) => getCandidateScore(right, tags) - getCandidateScore(left, tags));
+  };
 
   const ranked = {
     spot: sortByScore(grouped.spot),
@@ -260,7 +283,7 @@ const buildRoutePlans = (candidates: Candidate[], tags: ExtractTags | null): Rou
     const filledCount = availableItems.length;
     const averageScore =
       availableItems.length > 0
-        ? availableItems.reduce((sum, item) => sum + getCandidateScore(item, tags), 0) / availableItems.length
+        ? availableItems.reduce((sum, item) => sum + getDisplayCandidateScore(item, tags), 0) / availableItems.length
         : 0;
     const estimatedBudgetValue = availableItems.reduce((sum, item) => sum + (item.price_value_cny ?? 0), 0);
 
@@ -273,9 +296,9 @@ const buildRoutePlans = (candidates: Candidate[], tags: ExtractTags | null): Rou
           ? '景点、餐饮、酒店都已补齐'
           : filledCount === 2
             ? '已组合出 2 个节点，剩余节点先占位'
-            : '先展示当前可用节点，方便确认前端效果',
+            : '先展示当前可用节点',
       confidenceLabel:
-        averageScore >= 55 ? '匹配度高' : averageScore >= 48 ? '匹配度中' : '基础展示路线',
+        averageScore >= 55 ? '匹配度高' : averageScore >= 48 ? '匹配度中' :'路线简介',
       estimatedBudget: estimatedBudgetValue > 0 ? `参考消费 ¥${Math.round(estimatedBudgetValue)}` : null,
       spot,
       food,
@@ -289,6 +312,7 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [errorDetails, setErrorDetails] = useState('');
+  const [selectedRoute, setSelectedRoute] = useState<RoutePlan | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
@@ -310,6 +334,27 @@ export default function App() {
   useEffect(() => {
     endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, stage]);
+
+  useEffect(() => {
+    if (!selectedRoute) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSelectedRoute(null);
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedRoute]);
 
   const resetComposerHeight = () => {
     if (!textAreaRef.current) {
@@ -367,11 +412,13 @@ export default function App() {
         extract_result_path: extractData.result_file_path,
         destination: extractData.destination,
       });
+      const rankedCandidates =
+        gatherResponse.data.data.ranked_candidates || gatherResponse.data.data.flattened_candidates || [];
 
       updateLastAssistantMessage({
         content: assistantSummary,
         stage: 'done',
-        candidates: gatherResponse.data.data.flattened_candidates,
+        candidates: rankedCandidates,
       });
       setStage('done');
     } catch (error: any) {
@@ -451,13 +498,9 @@ export default function App() {
               <div className="section-kicker">展示路线</div>
               <div className="section-title">
                 <Sparkle size={20} weight="fill" color="var(--accent-cyan)" />
-                三条推荐路线预览
+                推荐路线预览
               </div>
-              <p className="section-description">
-                {isInputFocus
-                  ? '输入需求后，这里会先用轻量组合算法生成 3 条展示路线，后续可以直接替换成核心算法结果。'
-                  : '当前先固定展示 3 条路线卡，每张卡都包含景点、餐饮、酒店三个节点。'}
-              </p>
+
             </div>
             <div className="results-pill">{resultHint}</div>
           </div>
@@ -465,73 +508,52 @@ export default function App() {
           <div className="results-content">
             <div className="route-grid">
               {latestRoutes.map((route) => (
-                <div className="route-card" key={route.id}>
-                  <div className="route-card-header">
-                    <div>
-                      <div className="route-badge">{route.badge}</div>
-                      <div className="route-title-row">
-                        <h3>{route.title}</h3>
-                        <span className="route-confidence">{route.confidenceLabel}</span>
-                      </div>
-                      <p className="route-subtitle">{route.subtitle}</p>
-                    </div>
-                    {route.estimatedBudget && <div className="route-budget">{route.estimatedBudget}</div>}
+                <button
+                  type="button"
+                  className="route-card route-card--compact"
+                  key={route.id}
+                  onClick={() => setSelectedRoute(route)}
+                >
+                  <div className="route-card-top">
+                    <div className="route-badge">{route.badge}</div>
+                    <span className="route-card-action">查看详情</span>
                   </div>
 
-                  <div className="route-steps">
-                    {([
-                      { key: 'spot', label: '景点', candidate: route.spot },
-                      { key: 'food', label: '餐饮', candidate: route.food },
-                      { key: 'hotel', label: '酒店', candidate: route.hotel },
-                    ] as const).map((item) => (
-                      <div className={`route-step ${item.candidate ? '' : 'route-step--placeholder'}`} key={`${route.id}-${item.key}`}>
-                        <div className="route-step-top">
-                          <div className="route-step-label">
-                            {getPoiIcon(item.key)}
-                            <span>{item.label}</span>
-                          </div>
-                          {item.candidate?.rating != null && <span className="route-step-rating">★ {item.candidate.rating}</span>}
-                        </div>
+                  <div className="route-title-row">
+                    <h3>{route.title}</h3>
+                    <span className="route-confidence">{route.confidenceLabel}</span>
+                  </div>
 
-                        <div className="route-step-name">
-                          {item.candidate ? item.candidate.name : `待接入 ${item.label} 节点`}
-                        </div>
+                  {route.estimatedBudget && (
+                    <div className="route-summary-row route-summary-row--compact">
+                      <div className="route-budget route-budget--pill">{route.estimatedBudget}</div>
+                    </div>
+                  )}
 
-                        <div className="route-step-address">
-                          {item.candidate ? formatAddress(item.candidate.address) : '当前链路暂无该类型候选，先保留展示位。'}
+                  <div className="route-mini-stops">
+                    {getRouteStops(route).map((item) => (
+                      <div
+                        className={`route-mini-stop ${item.candidate ? '' : 'route-mini-stop--placeholder'}`}
+                        key={`${route.id}-${item.key}`}
+                      >
+                        <div className="route-mini-stop-label">
+                          {getPoiIcon(item.key)}
+                          <span>{item.label}</span>
                         </div>
-
-                        <div className="route-step-meta">
-                          {item.candidate && formatDistance(item.candidate.center_distance_m) && (
-                            <span>{formatDistance(item.candidate.center_distance_m)}</span>
-                          )}
-                          {item.candidate && formatPrice(item.candidate.price_value_cny) && (
-                            <span>¥ {formatPrice(item.candidate.price_value_cny)}</span>
-                          )}
-                        </div>
-
-                        <div className="tags-container tags-container--compact">
-                          {item.candidate
-                            ? getVisibleCandidateTags(item.candidate, 2).map((tag) => (
-                                <div className="tag tag--candidate" key={`${route.id}-${item.key}-${tag}`}>
-                                  {tag}
-                                </div>
-                              ))
-                            : (
-                                <div className="tag tag--candidate tag--muted">前端占位展示</div>
-                              )}
+                        <div className="route-mini-stop-name">
+                          {item.candidate ? item.candidate.name : `待补齐${item.label}`}
                         </div>
                       </div>
                     ))}
                   </div>
-                </div>
+                </button>
               ))}
 
               {latestRoutes.length === 0 && stage !== 'gathering' && (
                 <div className={`results-empty ${isInputFocus ? 'results-empty--secondary' : ''}`}>
-                  <div className="results-empty-title">先输入需求，再看三条路线预览</div>
+                  <div className="results-empty-title">路线预览</div>
                   <p className="results-empty-copy">
-                    后续这里会稳定展示 3 张路线卡，每张卡都包含景点、餐饮和酒店节点。
+                    3 张路线卡，包含景点、餐饮和酒店。
                   </p>
                 </div>
               )}
@@ -543,7 +565,7 @@ export default function App() {
                     <span></span>
                     <span></span>
                   </div>
-                  <p>正在组合 3 条路线展示卡，请稍候...</p>
+                  <p>正在组合 3 条路线，请稍候...</p>
                 </div>
               )}
             </div>
@@ -669,7 +691,7 @@ export default function App() {
                           <span>
                             {message.stage === 'asr_loading' && '正在识别语音内容...'}
                             {message.stage === 'extracting' && '正在提取关键需求...'}
-                            {message.stage === 'gathering' && '正在生成三条路线展示卡...'}
+                            {message.stage === 'gathering' && '正在生成路线...'}
                           </span>
                         </div>
                       )}
@@ -684,7 +706,7 @@ export default function App() {
                       {message.stage === 'done' && (
                         <div className="message-feedback message-feedback--success">
                           <CheckCircle size={18} />
-                          <span>三条路线展示卡已生成。</span>
+                          <span>三条路线已生成。</span>
                         </div>
                       )}
                     </div>
@@ -745,6 +767,107 @@ export default function App() {
           </div>
         </section>
       </main>
+
+      <AnimatePresence>
+        {selectedRoute && (
+          <motion.div
+            className="route-modal-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSelectedRoute(null)}
+          >
+            <motion.div
+              className="route-modal"
+              initial={{ opacity: 0, y: 24, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.98 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              onClick={(event) => event.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="route-modal-title"
+            >
+              <div className="route-modal-header">
+                <div>
+                  <div className="route-badge">{selectedRoute.badge}</div>
+                  <div className="route-title-row route-title-row--modal">
+                    <h3 id="route-modal-title">{selectedRoute.title}</h3>
+                    <span className="route-confidence">{selectedRoute.confidenceLabel}</span>
+                  </div>
+                  <p className="route-subtitle route-subtitle--modal">{selectedRoute.subtitle}</p>
+                </div>
+
+                <button
+                  type="button"
+                  className="route-modal-close"
+                  onClick={() => setSelectedRoute(null)}
+                  aria-label="关闭路线详情"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="route-modal-body">
+                {selectedRoute.estimatedBudget && (
+                  <div className="route-modal-overview">
+                    <div className="route-budget route-budget--pill">{selectedRoute.estimatedBudget}</div>
+                  </div>
+                )}
+
+                <div className="route-detail-grid">
+                  {getRouteStops(selectedRoute).map((item) => (
+                    <section
+                      className={`route-step route-step--detail ${item.candidate ? '' : 'route-step--placeholder'}`}
+                      key={`${selectedRoute.id}-detail-${item.key}`}
+                    >
+                      <div className="route-step-top">
+                        <div className="route-step-label">
+                          {getPoiIcon(item.key)}
+                          <span>{item.label}</span>
+                        </div>
+                        {item.candidate?.rating != null && <span className="route-step-rating">★ {item.candidate.rating}</span>}
+                      </div>
+
+                      <div className="route-step-name">
+                        {item.candidate ? item.candidate.name : `待接入 ${item.label} 节点`}
+                      </div>
+
+                      <div className="route-step-address">
+                        {item.candidate?.address || '当前链路暂无该类型候选，先保留展示位。'}
+                      </div>
+
+                      <div className="route-step-meta">
+                        {item.candidate && formatDistance(item.candidate.center_distance_m) && (
+                          <span>{formatDistance(item.candidate.center_distance_m)}</span>
+                        )}
+                        {item.candidate && formatPrice(item.candidate.price_value_cny) && (
+                          <span>¥ {formatPrice(item.candidate.price_value_cny)}</span>
+                        )}
+                        {item.candidate?.final_score != null && (
+                          <span>匹配度 {Math.round(item.candidate.final_score * 100)}</span>
+                        )}
+                      </div>
+
+                      <div className="tags-container tags-container--compact">
+                        {item.candidate
+                          ? getVisibleCandidateTags(item.candidate, 4).map((tag) => (
+                              <div className="tag tag--candidate" key={`${selectedRoute.id}-${item.key}-${tag}`}>
+                                {tag}
+                              </div>
+                            ))
+                          : (
+                              <div className="tag tag--candidate tag--muted">前端占位展示</div>
+                            )}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

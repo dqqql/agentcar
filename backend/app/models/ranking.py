@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from backend.app.models.adapter import CandidatePoi, CandidatePoolResult
@@ -19,7 +21,7 @@ class RankingResult(BaseModel):
     ranked_spot_candidates: list[RankedCandidate] = Field(default_factory=list)
     ranked_food_candidates: list[RankedCandidate] = Field(default_factory=list)
     ranked_hotel_candidates: list[RankedCandidate] = Field(default_factory=list)
-    debug_meta: dict[str, str | int | float | None] = Field(default_factory=dict)
+    debug_meta: dict[str, Any] = Field(default_factory=dict)
 
 
 class RankingRequest(BaseModel):

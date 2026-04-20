@@ -36,9 +36,18 @@ class CandidateAdapterService:
         food_records = detail_payloads["food"].get("records", [])
         hotel_records = detail_payloads["hotel"].get("records", [])
 
-        spot_candidates = self._adapt_place_candidates(place_records, center_location, algorithm_input.search_context.search_radius_m)
-        food_candidates = self._adapt_food_candidates(food_records, center_location, algorithm_input.search_context.search_radius_m)
-        hotel_candidates = self._adapt_hotel_candidates(hotel_records, center_location, algorithm_input.search_context.search_radius_m)
+        search_radius_m = algorithm_input.search_context.search_radius_m
+        spot_candidates = self._adapt_place_candidates(place_records, center_location, search_radius_m)
+        food_candidates = self._adapt_food_candidates(food_records, center_location, search_radius_m)
+        hotel_candidates = self._adapt_hotel_candidates(hotel_records, center_location, search_radius_m)
+
+        fallback_radius_m = max(search_radius_m, 50000)
+        if not spot_candidates and place_records:
+            spot_candidates = self._adapt_place_candidates(place_records, center_location, fallback_radius_m)
+        if not food_candidates and food_records:
+            food_candidates = self._adapt_food_candidates(food_records, center_location, fallback_radius_m)
+        if not hotel_candidates and hotel_records:
+            hotel_candidates = self._adapt_hotel_candidates(hotel_records, center_location, fallback_radius_m)
 
         result = CandidatePoolResult(
             algorithm_input=algorithm_input,
