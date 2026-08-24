@@ -201,7 +201,6 @@ def build_hotel_inputs(destination: str) -> list[str]:
         "20",
         check_in_date.isoformat(),
         "1",
-        "pipeline_demo",
     ]
 
 
