@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 import time
 from datetime import datetime
@@ -17,7 +16,7 @@ if str(GETDATA_DIR) not in sys.path:
 from output_utils import build_output_bundle, write_detail_json, write_summary_csv
 
 # 高德地图 API 配置
-AMAP_API_KEY_ENV = "AMAP_API_KEY"
+AMAP_KEY = "772d9db2668f6bfb9c3238702c9b9b9e"
 AROUND_URL = "https://restapi.amap.com/v5/place/around"
 GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
 CATEGORIES = "050000"  # 餐饮服务分类代码
@@ -53,13 +52,6 @@ SUMMARY_COLUMNS = [
 ]
 
 
-def require_amap_key() -> str:
-    api_key = os.getenv(AMAP_API_KEY_ENV, "").strip()
-    if not api_key:
-        raise RuntimeError(f"请先设置环境变量 {AMAP_API_KEY_ENV}")
-    return api_key
-
-
 def is_coordinate(value):
     return bool(re.fullmatch(r"\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*", value))
 
@@ -71,7 +63,7 @@ def prompt_with_default(prompt_text, default_value):
 
 def geocode_address(address):
     params = {
-        "key": require_amap_key(),
+        "key": AMAP_KEY,
         "address": address,
     }
 
@@ -112,7 +104,7 @@ def get_pois_around(location, radius=DEFAULT_RADIUS, max_results=DEFAULT_MAX_RES
     while len(pois) < max_results:
         page_size = min(API_PAGE_SIZE, max_results - len(pois))
         params = {
-            "key": require_amap_key(),
+            "key": AMAP_KEY,
             "location": location,
             "radius": radius,
             "types": CATEGORIES,

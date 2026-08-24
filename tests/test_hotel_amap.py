@@ -21,7 +21,7 @@ class FakeResponse:
         return self.payload
 
 
-def test_amap_key_is_loaded_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_amap_key_constant_is_used_for_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, dict]] = []
 
     def fake_get(url: str, *, params: dict, **_: object) -> FakeResponse:
@@ -37,7 +37,7 @@ def test_amap_key_is_loaded_from_environment(monkeypatch: pytest.MonkeyPatch) ->
             )
         return FakeResponse({"status": "1", "pois": []})
 
-    monkeypatch.setenv(hotel.AMAP_API_KEY_ENV, "test-key")
+    monkeypatch.setattr(hotel, "AMAP_KEY", "test-key")
     monkeypatch.setattr(hotel.requests, "get", fake_get)
 
     lat, lon, _ = hotel.geocode_location("北京市")
@@ -47,15 +47,14 @@ def test_amap_key_is_loaded_from_environment(monkeypatch: pytest.MonkeyPatch) ->
     assert calls[1][1]["key"] == "test-key"
 
 
-def test_missing_key_does_not_request_unknown_location(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(hotel.AMAP_API_KEY_ENV, raising=False)
+def test_geocode_exception_uses_known_city_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    def timeout(*_: object, **__: object) -> None:
+        raise requests.Timeout("mock timeout")
 
-    def unexpected_request(*_: object, **__: object) -> None:
-        raise AssertionError("network request must not be made without a key")
-
-    monkeypatch.setattr(hotel.requests, "get", unexpected_request)
-    with pytest.raises(RuntimeError, match=hotel.AMAP_API_KEY_ENV):
-        hotel.geocode_location("未配置城市")
+    monkeypatch.setattr(hotel.requests, "get", timeout)
+    lat, lon, info = hotel.geocode_location("北京")
+    assert (lat, lon) == hotel.FALLBACK_CITY_CENTERS["北京"]
+    assert info["source"] == "local_fallback"
 
 
 def test_amap_response_normalizes_coordinates_and_contract() -> None:
@@ -87,7 +86,7 @@ def test_amap_response_normalizes_coordinates_and_contract() -> None:
 def test_amap_exception_produces_nonempty_adapter_compatible_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(hotel.AMAP_API_KEY_ENV, "test-key")
+    monkeypatch.setattr(hotel, "AMAP_KEY", "test-key")
 
     def timeout(*_: object, **__: object) -> None:
         raise requests.Timeout("mock timeout")

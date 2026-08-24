@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 import time
 from datetime import datetime
@@ -16,16 +15,7 @@ from output_utils import build_output_bundle, write_detail_json, write_summary_c
 from coordTransform_utils import gcj02_to_wgs84, gcj02_to_bd09
 #from shp import trans_point_to_shp
 
-AMAP_API_KEY_ENV = "AMAP_API_KEY"
-
-
-def require_amap_web_key():
-    api_key = os.getenv(AMAP_API_KEY_ENV, "").strip()
-    if not api_key:
-        raise RuntimeError(f"请先设置环境变量 {AMAP_API_KEY_ENV}")
-    return api_key
-
-
+amap_web_key = '3ff0b1a041f41b85422d9bc00e68f7a7' # 高德 Web 服务 API Key
 keyword = ['公园']
 city = ['北京市']
 # 输出数据坐标系,1为高德GCJ20坐标系，2WGS84坐标系，3百度BD09坐标系
@@ -319,7 +309,7 @@ def hand(poilist, result, remaining=None):
 
 # 单页获取pois
 def getpoi_page(cityname, keywords, page, offset):
-    req_url = poi_search_url + "?key=" + require_amap_web_key() + '&extensions=all&keywords=' + quote(
+    req_url = poi_search_url + "?key=" + amap_web_key + '&extensions=all&keywords=' + quote(
         keywords) + '&city=' + quote(cityname) + '&citylimit=true' + '&offset=' + str(offset) + '&page=' + str(
         page) + '&output=json'
     data = ''
@@ -341,7 +331,7 @@ def resolve_area_code_from_keyword(keyword):
     if not keyword:
         return ""
 
-    req_url = poi_search_url + "?key=" + require_amap_web_key() + '&extensions=all&keywords=' + quote(
+    req_url = poi_search_url + "?key=" + amap_web_key + '&extensions=all&keywords=' + quote(
         keyword) + '&offset=1&page=1&output=json'
     print('尝试按地点名称解析所属行政区：' + keyword)
 
@@ -481,7 +471,7 @@ def get_distrinctNoCache(code):
     :return:
     '''
 
-    url = "https://restapi.amap.com/v3/config/district?subdistrict=2&extensions=all&key=" + require_amap_web_key()
+    url = "https://restapi.amap.com/v3/config/district?subdistrict=2&extensions=all&key=" + amap_web_key
 
     req_url = url + "&keywords=" + quote(code)
 

@@ -4,7 +4,6 @@ import csv
 import hashlib
 import json
 import math
-import os
 import random
 import re
 import sys
@@ -29,7 +28,7 @@ DEFAULT_NIGHTS = 1
 DEFAULT_TOURISM_TYPES = ("hotel", "hostel", "guest_house", "motel", "resort")
 USER_AGENT = "agentcar-hotel-prototype/1.0"
 DEFAULT_OUTPUT_LABEL = "hotel_candidates"
-AMAP_API_KEY_ENV = "AMAP_API_KEY"
+AMAP_KEY = "772d9db2668f6bfb9c3238702c9b9b9e"
 AMAP_GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
 AMAP_AROUND_URL = "https://restapi.amap.com/v5/place/around"
 AMAP_HOTEL_CATEGORIES = "100000"
@@ -129,25 +128,23 @@ def parse_stars(raw_value: str | None) -> float | None:
 
 
 def geocode_location(location_text: str) -> tuple[float, float, dict[str, Any]]:
-    api_key = os.getenv(AMAP_API_KEY_ENV, "").strip()
-    if api_key:
-        try:
-            response = requests.get(
-                AMAP_GEOCODE_URL,
-                params={"key": api_key, "address": location_text},
-                headers={"User-Agent": USER_AGENT},
-                timeout=10,
-            )
-            response.raise_for_status()
-            result = response.json()
-            geocodes = result.get("geocodes") or []
-            if result.get("status") == "1" and geocodes:
-                best = geocodes[0]
-                lon_text, lat_text = best["location"].split(",", maxsplit=1)
-                return float(lat_text), float(lon_text), best
-            print(f"高德地理编码失败，准备使用本地坐标回退：{result.get('info', '未知错误')}")
-        except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
-            print(f"高德地理编码请求异常，准备使用本地坐标回退：{exc}")
+    try:
+        response = requests.get(
+            AMAP_GEOCODE_URL,
+            params={"key": AMAP_KEY, "address": location_text},
+            headers={"User-Agent": USER_AGENT},
+            timeout=10,
+        )
+        response.raise_for_status()
+        result = response.json()
+        geocodes = result.get("geocodes") or []
+        if result.get("status") == "1" and geocodes:
+            best = geocodes[0]
+            lon_text, lat_text = best["location"].split(",", maxsplit=1)
+            return float(lat_text), float(lon_text), best
+        print(f"高德地理编码失败，准备使用本地坐标回退：{result.get('info', '未知错误')}")
+    except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
+        print(f"高德地理编码请求异常，准备使用本地坐标回退：{exc}")
 
     fallback_center = FALLBACK_CITY_CENTERS.get(location_text.strip())
     if fallback_center:
@@ -158,11 +155,6 @@ def geocode_location(location_text: str) -> tuple[float, float, dict[str, Any]]:
             "source": "local_fallback",
         }
 
-    if not api_key:
-        raise RuntimeError(
-            f"无法解析地点 '{location_text}'：请设置环境变量 {AMAP_API_KEY_ENV}，"
-            "或直接输入“经度,纬度”。"
-        )
     raise RuntimeError(f"无法解析地点 '{location_text}'，且没有可用的本地坐标回退。")
 
 
@@ -193,11 +185,6 @@ def fetch_amap_hotels(
     radius: int,
     max_results: int,
 ) -> list[dict[str, Any]]:
-    api_key = os.getenv(AMAP_API_KEY_ENV, "").strip()
-    if not api_key:
-        print(f"未设置 {AMAP_API_KEY_ENV}，酒店搜索将使用模拟数据回退。")
-        return []
-
     pois: list[dict[str, Any]] = []
     target = max(1, int(max_results))
     page_num = 1
@@ -207,7 +194,7 @@ def fetch_amap_hotels(
             response = requests.get(
                 AMAP_AROUND_URL,
                 params={
-                    "key": api_key,
+                    "key": AMAP_KEY,
                     "location": f"{lon},{lat}",
                     "radius": radius,
                     "types": AMAP_HOTEL_CATEGORIES,
