@@ -43,14 +43,6 @@ FALLBACK_CITY_CENTERS = {
     "杭州市": (30.2741, 120.1551),
 }
 
-# 高德地图 API 配置
-AMAP_KEY = "772d9db2668f6bfb9c3238702c9b9b9e"
-AMAP_GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
-AMAP_AROUND_URL = "https://restapi.amap.com/v5/place/around"
-AMAP_HOTEL_CATEGORIES = "100000"  # 住宿服务分类代码
-AMAP_SHOW_FIELDS = "business,navi,photos,indoor"
-AMAP_API_PAGE_SIZE = 25
-
 TOURISM_TYPE_LABELS = {
     "hotel": "酒店",
     "hostel": "青年旅舍",
@@ -136,29 +128,34 @@ def parse_stars(raw_value: str | None) -> float | None:
 
 
 def geocode_location(location_text: str) -> tuple[float, float, dict[str, Any]]:
-    """使用高德地图 API 进行地理编码"""
-    params = {
-        "key": AMAP_KEY,
-        "address": location_text,
-    }
-
     try:
-        response = requests.get(AMAP_GEOCODE_URL, params=params, timeout=10)
+        response = requests.get(
+            AMAP_GEOCODE_URL,
+            params={"key": AMAP_KEY, "address": location_text},
+            headers={"User-Agent": USER_AGENT},
+            timeout=10,
+        )
+        response.raise_for_status()
         result = response.json()
-    except Exception as exc:
-        raise RuntimeError(f"地点解析失败 '{location_text}': {exc}") from exc
+        geocodes = result.get("geocodes") or []
+        if result.get("status") == "1" and geocodes:
+            best = geocodes[0]
+            lon_text, lat_text = best["location"].split(",", maxsplit=1)
+            return float(lat_text), float(lon_text), best
+        print(f"高德地理编码失败，准备使用本地坐标回退：{result.get('info', '未知错误')}")
+    except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
+        print(f"高德地理编码请求异常，准备使用本地坐标回退：{exc}")
 
-    if result.get("status") != "1":
-        raise RuntimeError(f"地点解析失败 '{location_text}': {result.get('info', '未知错误')}")
+    fallback_center = FALLBACK_CITY_CENTERS.get(location_text.strip())
+    if fallback_center:
+        lat, lon = fallback_center
+        return lat, lon, {
+            "formatted_address": location_text.strip(),
+            "location": f"{lon},{lat}",
+            "source": "local_fallback",
+        }
 
-    geocodes = result.get("geocodes", [])
-    if not geocodes:
-        raise RuntimeError(f"未找到地点: {location_text}")
-
-    best = geocodes[0]
-    location_str = best.get("location", "")  # 格式: "经度,纬度"
-    lon_str, lat_str = location_str.split(",")
-    return float(lat_str), float(lon_str), best
+    raise RuntimeError(f"无法解析地点 '{location_text}'，且没有可用的本地坐标回退。")
 
 
 def normalize_location(location_text: str) -> tuple[float, float, dict[str, Any] | None]:
@@ -182,62 +179,49 @@ def haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> int:
     return int(2 * radius * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
 
 
-def build_overpass_query(lat: float, lon: float, radius: int) -> str:
-    """保留用于 fallback 的查询构建（已废弃，使用高德 API）"""
-    tourism_pattern = "|".join(DEFAULT_TOURISM_TYPES)
-    return f"""
-[out:json][timeout:25];
-(
-  node["tourism"~"^({tourism_pattern})$"](around:{radius},{lat},{lon});
-  way["tourism"~"^({tourism_pattern})$"](around:{radius},{lat},{lon});
-  relation["tourism"~"^({tourism_pattern})$"](around:{radius},{lat},{lon});
-);
-out center tags;
-""".strip()
-
-
-def fetch_amap_hotels(lat: float, lon: float, radius: int, max_results: int) -> list[dict[str, Any]]:
-    """使用高德周边搜索 API 获取酒店数据"""
-    location_str = f"{lon},{lat}"  # 高德格式: 经度,纬度
+def fetch_amap_hotels(
+    lat: float,
+    lon: float,
+    radius: int,
+    max_results: int,
+) -> list[dict[str, Any]]:
     pois: list[dict[str, Any]] = []
-    page_num = 1
     target = max(1, int(max_results))
-
+    page_num = 1
     while len(pois) < target:
         page_size = min(AMAP_API_PAGE_SIZE, target - len(pois))
-        params = {
-            "key": AMAP_KEY,
-            "location": location_str,
-            "radius": radius,
-            "types": AMAP_HOTEL_CATEGORIES,
-            "show_fields": AMAP_SHOW_FIELDS,
-            "page_size": page_size,
-            "page_num": page_num,
-        }
-
         try:
-            response = requests.get(AMAP_AROUND_URL, params=params, timeout=15)
+            response = requests.get(
+                AMAP_AROUND_URL,
+                params={
+                    "key": AMAP_KEY,
+                    "location": f"{lon},{lat}",
+                    "radius": radius,
+                    "types": AMAP_HOTEL_CATEGORIES,
+                    "show_fields": AMAP_SHOW_FIELDS,
+                    "page_size": page_size,
+                    "page_num": page_num,
+                },
+                headers={"User-Agent": USER_AGENT},
+                timeout=15,
+            )
+            response.raise_for_status()
             result = response.json()
-        except Exception as exc:
-            print(f"高德周边搜索请求异常: {exc}")
-            break
+        except (requests.RequestException, ValueError, TypeError) as exc:
+            print(f"高德周边搜索请求异常：{exc}")
+            return []
 
         if result.get("status") != "1":
-            print(f"高德周边搜索失败: {result.get('info', '未知错误')}")
-            break
-
-        current_pois = result.get("pois", [])
+            print(f"高德周边搜索失败：{result.get('info', '未知错误')}")
+            return []
+        current_pois = result.get("pois") or []
         if not current_pois:
             break
-
         pois.extend(current_pois)
-
         if len(current_pois) < page_size:
             break
-
         page_num += 1
         time.sleep(0.2)
-
     return pois[:target]
 
 
@@ -276,48 +260,25 @@ def fallback_hotels(lat: float, lon: float, location_text: str, max_results: int
 
 
 def extract_point(element: dict[str, Any]) -> tuple[float | None, float | None]:
-    """从高德 POI 数据中提取坐标"""
-    location_str = element.get("location", "")
-    if location_str and "," in location_str:
-        parts = location_str.split(",")
-        if len(parts) == 2:
-            try:
-                lon = float(parts[0])
-                lat = float(parts[1])
-                return lat, lon
-            except ValueError:
-                pass
+    location = str(element.get("location") or "")
+    if "," in location:
+        try:
+            lon_text, lat_text = location.split(",", maxsplit=1)
+            return float(lat_text), float(lon_text)
+        except ValueError:
+            pass
+    if "lat" in element and "lon" in element:
+        return float(element["lat"]), float(element["lon"])
     return None, None
 
 
 def _map_tourism_type(typecode: str, type_name: str) -> str:
-    """将高德分类代码映射为酒店类型"""
-    if not typecode:
-        return "hotel"
-    # 高德住宿服务子分类
-    code_map = {
-        "100100": "hotel",      # 星级酒店
-        "100101": "hotel",      # 五星级
-        "100102": "hotel",      # 四星级
-        "100103": "hotel",      # 三星级
-        "100104": "hotel",      # 二星级
-        "100105": "hotel",      # 经济型
-        "100200": "hotel",      # 快捷酒店
-        "100300": "guest_house", # 民宿
-        "100301": "guest_house",
-        "100302": "guest_house",
-        "400000": "motel",      # 汽车旅馆（高德无此分类，保留）
-    }
-    # 尝试精确匹配
-    if typecode in code_map:
-        return code_map[typecode]
-    # 尝试前缀匹配
-    prefix = typecode[:4]
-    if prefix in code_map:
-        return code_map[prefix]
-    prefix = typecode[:3]
-    if prefix in code_map:
-        return code_map[prefix]
+    if "民宿" in type_name or typecode.startswith("1003"):
+        return "guest_house"
+    if "青年旅舍" in type_name:
+        return "hostel"
+    if "度假" in type_name:
+        return "resort"
     return "hotel"
 
 
@@ -328,7 +289,6 @@ def normalize_amap_hotels(
     center_lon: float,
     max_results: int,
 ) -> list[dict[str, Any]]:
-    """将高德 POI 数据转换为标准化酒店数据"""
     normalized: list[dict[str, Any]] = []
     seen_keys: set[tuple[str, str, int]] = set()
 
@@ -337,42 +297,53 @@ def normalize_amap_hotels(
         if lat is None or lon is None:
             continue
 
-        name = (element.get("name") or "").strip()
+        tags = element.get("tags") or {}
+        name = (element.get("name") or tags.get("name") or tags.get("name:en") or "").strip()
         if not name:
             continue
 
-        business = element.get("business") or {}
-        typecode = element.get("typecode") or ""
-        type_name = element.get("type") or ""
-        tourism_type = _map_tourism_type(typecode, type_name)
-
+        typecode = str(element.get("typecode") or "")
+        type_name = str(element.get("type") or "")
+        is_fallback = type_name == "fallback"
+        tourism_type = (
+            str(tags.get("tourism") or "hotel").strip()
+            if is_fallback
+            else _map_tourism_type(typecode, type_name)
+        )
         distance_m = haversine_meters(center_lat, center_lon, lat, lon)
         unique_key = (name.lower(), tourism_type.lower(), distance_m // 20)
         if unique_key in seen_keys:
             continue
         seen_keys.add(unique_key)
 
-        address_parts = [
-            element.get("pname", ""),
-            element.get("cityname", ""),
-            element.get("adname", ""),
-            element.get("address", ""),
-        ]
-        address = "".join(p for p in address_parts if p)
-
         normalized.append(
             {
-                "osm_id": f"amap/{element.get('id', '')}",
+                "osm_id": (
+                    f"fallback/{element.get('id')}"
+                    if is_fallback
+                    else f"amap/{element.get('id', '')}"
+                ),
                 "name": name,
                 "tourism_type": tourism_type,
                 "latitude": lat,
                 "longitude": lon,
                 "distance_m": distance_m,
-                "stars": parse_stars(business.get("tag") or type_name),
-                "address": address,
-                "phone": business.get("tel") or "",
-                "website": "",
+                "stars": parse_stars(
+                    tags.get("stars")
+                    or (element.get("business") or {}).get("tag")
+                    or type_name
+                ),
+                "address": (
+                    tags.get("addr:full")
+                    or "".join(
+                        str(element.get(key) or "")
+                        for key in ("pname", "cityname", "adname", "address")
+                    )
+                ),
+                "phone": tags.get("phone") or (element.get("business") or {}).get("tel") or "",
+                "website": tags.get("website") or "",
                 "source_tags": element,
+                "source_provider": "local_fallback" if is_fallback else "amap_place_around",
             }
         )
 
@@ -647,7 +618,7 @@ def enrich_hotels(
                 "price_max_cny": price_max,
                 "room_types": room_types,
                 "source": {
-                    "provider": "Amap Place Around API",
+                    "provider": hotel.get("source_provider", "amap_place_around"),
                     "osm_id": hotel["osm_id"],
                     "fetched_at": datetime.now(timezone.utc).isoformat(),
                 },
