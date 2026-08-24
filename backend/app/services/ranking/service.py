@@ -11,7 +11,11 @@ from backend.app.models.ranking import RankedCandidate, RankingRequest, RankingR
 
 
 class RankingService:
-    """Phase 1/2 ranking service wired to the main backend workflow."""
+    """Deterministic multi-stage ranking while preserving the public service contract."""
+
+    def __init__(self, *, top_k: int = 10, sequence_weight: float = 0.15):
+        self.top_k = max(1, int(top_k))
+        self.sequence_weight = self._clamp(sequence_weight, 0.0, 1.0)
 
     def rank_candidates(self, request: RankingRequest) -> RankingResult:
         candidate_pool = request.candidate_pool
@@ -45,6 +49,9 @@ class RankingService:
                 "food_candidate_count": len(candidate_pool.food_candidates),
                 "hotel_candidate_count": len(candidate_pool.hotel_candidates),
                 "alpha": algorithm_input.fusion_config.alpha,
+                "top_k": self.top_k,
+                "sequence_weight": self.sequence_weight,
+                "sequence_active": self._has_usable_history(algorithm_input),
             },
         )
 
@@ -64,14 +71,24 @@ class RankingService:
             algorithm_input,
             poi_type=poi_type,
         )
+        sequence_scores = self._calculate_sequence_scores(candidates, algorithm_input)
         alpha = self._clamp(algorithm_input.fusion_config.alpha, 0.0, 1.0)
+        sequence_weight = self.sequence_weight if sequence_scores is not None else 0.0
+        base_weight = 1.0 - sequence_weight
 
         ranked: list[RankedCandidate] = []
         for candidate in candidates:
             objective_score = objective_scores.get(candidate.poi_id, 0.5)
             subjective_score = subjective_scores.get(candidate.poi_id, 0.5)
+            sequence_score = (
+                sequence_scores.get(candidate.poi_id, 1.0)
+                if sequence_scores is not None
+                else None
+            )
+            base_score = alpha * objective_score + (1 - alpha) * subjective_score
             final_score = self._clamp(
-                alpha * objective_score + (1 - alpha) * subjective_score,
+                base_weight * base_score
+                + sequence_weight * (sequence_score if sequence_score is not None else 1.0),
                 0.0,
                 1.0,
             )
@@ -91,6 +108,8 @@ class RankingService:
                         "objective": round(objective_score, 4),
                         "subjective": round(subjective_score, 4),
                         "alpha": round(alpha, 4),
+                        "sequence": round(sequence_score, 4) if sequence_score is not None else 0.0,
+                        "sequence_weight": round(sequence_weight, 4),
                     },
                 )
             )
@@ -103,11 +122,36 @@ class RankingService:
                 if item.candidate.center_distance_m is not None
                 else 10**9,
                 -(item.candidate.rating or 0),
+                item.candidate.name,
+                item.poi_id,
             )
         )
         for index, item in enumerate(ranked, start=1):
             item.rank = index
-        return ranked
+        return ranked[: self.top_k]
+
+    def _calculate_sequence_scores(
+        self,
+        candidates: list[CandidatePoi],
+        algorithm_input: AlgorithmInput,
+    ) -> dict[str, float] | None:
+        """Apply a small repeat-visit penalty when at least three history IDs exist.
+
+        The current input contract has POI IDs but no historical tags, so this is
+        intentionally not presented as a learned sequence model.
+        """
+        if not self._has_usable_history(algorithm_input):
+            return None
+        recent_ids = set(algorithm_input.sequence_model_input.historical_poi_ids[-3:])
+        return {
+            candidate.poi_id: (0.0 if candidate.poi_id in recent_ids else 1.0)
+            for candidate in candidates
+        }
+
+    @staticmethod
+    def _has_usable_history(algorithm_input: AlgorithmInput) -> bool:
+        sequence_input = algorithm_input.sequence_model_input
+        return sequence_input.has_history and len(sequence_input.historical_poi_ids) >= 3
 
     def _calculate_objective_scores(
         self,

@@ -43,8 +43,8 @@ async def root() -> ApiResponse:
                 "asr": "ready",
                 "keyword_extraction": "ready",
                 "candidate_adapter": "ready",
-                "ranking_model": "planned",
-                "frontend_output": "planned",
+                "ranking_model": "ready",
+                "frontend_output": "ready",
             },
         },
     )
