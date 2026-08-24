@@ -47,6 +47,21 @@ def test_amap_key_constant_is_used_for_requests(monkeypatch: pytest.MonkeyPatch)
     assert calls[1][1]["key"] == "test-key"
 
 
+def test_prompt_inputs_do_not_ask_for_output_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    answers = iter(["杭州", "4000", "10", "2026-09-07", "1"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    result = hotel.prompt_user_inputs()
+
+    assert result == {
+        "location": "杭州",
+        "radius": 4000,
+        "max_results": 10,
+        "check_in_date": date(2026, 9, 7),
+        "nights": 1,
+    }
+
+
 def test_geocode_exception_uses_known_city_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     def timeout(*_: object, **__: object) -> None:
         raise requests.Timeout("mock timeout")

@@ -27,7 +27,7 @@ DEFAULT_MAX_RESULTS = 20
 DEFAULT_NIGHTS = 1
 DEFAULT_TOURISM_TYPES = ("hotel", "hostel", "guest_house", "motel", "resort")
 USER_AGENT = "agentcar-hotel-prototype/1.0"
-DEFAULT_OUTPUT_LABEL = "hotel_candidates"
+DEFAULT_OUTPUT_LABEL = "candidates"
 AMAP_KEY = "772d9db2668f6bfb9c3238702c9b9b9e"
 AMAP_GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
 AMAP_AROUND_URL = "https://restapi.amap.com/v5/place/around"
@@ -697,13 +697,12 @@ def build_hotel_summary_rows(hotels: list[dict[str, Any]]) -> list[dict[str, Any
 def save_outputs(
     hotels: list[dict[str, Any]],
     *,
-    output_label: str,
     query: dict[str, Any],
 ) -> tuple[Path, Path]:
     bundle_dir, bundle_name = build_output_bundle(
         SCRIPT_DIR,
         "hotel",
-        output_label,
+        DEFAULT_OUTPUT_LABEL,
         query.get("check_in_date", ""),
     )
     summary_rows = build_hotel_summary_rows(hotels)
@@ -728,7 +727,6 @@ def prompt_user_inputs() -> dict[str, Any]:
     max_results_text = prompt_with_default("请输入最多生成多少家酒店", DEFAULT_MAX_RESULTS)
     check_in_text = prompt_with_default("请输入入住日期（YYYY-MM-DD）", default_check_in.isoformat())
     nights_text = prompt_with_default("请输入入住晚数", DEFAULT_NIGHTS)
-    output_text = prompt_with_default("请输入输出目录标识", DEFAULT_OUTPUT_LABEL)
 
     try:
         radius = max(500, int(radius_text))
@@ -760,7 +758,6 @@ def prompt_user_inputs() -> dict[str, Any]:
         "max_results": max_results,
         "check_in_date": check_in_date,
         "nights": nights,
-        "output_label": output_text,
     }
 
 
@@ -826,7 +823,6 @@ def main() -> None:
 
     summary_path, detail_path = save_outputs(
         hotels,
-        output_label=user_inputs["output_label"],
         query={
             "location_input": user_inputs["location"],
             "radius_m": user_inputs["radius"],
