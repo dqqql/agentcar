@@ -34,7 +34,9 @@ class ScoreResult:
     fallback_reason: str | None = None
 
 
-def _tokens(values: Sequence[str | None]) -> list[str]:
+def tokenize_feature_values(values: Sequence[str | None]) -> list[str]:
+    """Tokenize feature text identically wherever model vocabulary is built."""
+
     result: list[str] = []
     for value in values:
         if not value:
@@ -45,6 +47,10 @@ def _tokens(values: Sequence[str | None]) -> list[str]:
             if token
         )
     return result
+
+
+# Backwards-compatible private alias for callers from the Task 4 implementation.
+_tokens = tokenize_feature_values
 
 
 def _vector(tokens: Sequence[str], metadata: CheckpointMetadata) -> torch.Tensor:
@@ -82,7 +88,7 @@ def build_model_inputs(
     """
 
     preference = algorithm_input.subjective_preference
-    user_tokens = _tokens(
+    user_tokens = tokenize_feature_values(
         [
             *preference.preference_terms,
             *preference.travel_styles,
@@ -99,7 +105,9 @@ def build_model_inputs(
         poi = ranked.candidate
         candidate_vectors.append(
             _vector(
-                _tokens([*poi.tags, poi.name, poi.address, poi.source_dataset]),
+                tokenize_feature_values(
+                    [*poi.tags, poi.name, poi.address, poi.source_dataset]
+                ),
                 metadata,
             )
         )
