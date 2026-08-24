@@ -1,0 +1,75 @@
+{
+  "version": "v0.1.0-synthetic",
+  "config": {
+    "epochs": 10,
+    "batch_size": 128,
+    "lr": 0.003,
+    "tau": 0.07,
+    "gamma": 0.5,
+    "lambda_cl": 0.1,
+    "eta": 1e-05,
+    "sigma": 0.0,
+    "mu": 0.001,
+    "early_stop_patience": 3,
+    "version": "v0.1.0-synthetic",
+    "embed_dim": 64
+  },
+  "device": "cpu",
+  "model_params": {
+    "total": 46100,
+    "trainable": 46100
+  },
+  "data_stats": {
+    "num_pois": 410,
+    "num_tags": 199,
+    "num_users": 30,
+    "num_interactions": 12300,
+    "num_trajectories": 150,
+    "train_size": 9840,
+    "val_size": 2460
+  },
+  "training_history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.78469,
+      "train_L_rec": 0.6292339740259741,
+      "train_L_cl": 1.540842701298701,
+      "val_loss": 0.73225,
+      "val_ndcg": 0.9199
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.690987,
+      "train_L_rec": 0.5799684155844156,
+      "train_L_cl": 1.0980255584415584,
+      "val_loss": 0.663326,
+      "val_ndcg": 0.9239
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.647198,
+      "train_L_rec": 0.5253575584415584,
+      "train_L_cl": 1.2062475194805198,
+      "val_loss": 0.626498,
+      "val_ndcg": 0.9239
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.585215,
+      "train_L_rec": 0.47399651948051963,
+      "train_L_cl": 1.0999910519480518,
+      "val_loss": 0.623461,
+      "val_ndcg": 0.9239
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.521239,
+      "train_L_rec": 0.4381578701298702,
+      "train_L_cl": 0.818570857142857,
+      "val_loss": 0.603822,
+      "val_ndcg": 0.9239
+    }
+  ],
+  "best_ndcg": 0.9238567223506434,
+  "trained_at": "2026-08-24T12:02:54.211849"
+}

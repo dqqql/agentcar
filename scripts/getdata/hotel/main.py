@@ -7,12 +7,12 @@ import math
 import random
 import re
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+
+import requests
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 GETDATA_DIR = SCRIPT_DIR.parent
@@ -21,13 +21,21 @@ if str(GETDATA_DIR) not in sys.path:
 
 from output_utils import build_output_bundle, write_detail_json, write_summary_csv
 
-DEFAULT_LOCATION = "Wangfujing, Beijing"
+DEFAULT_LOCATION = "北京市"
 DEFAULT_RADIUS = 4000
 DEFAULT_MAX_RESULTS = 20
 DEFAULT_NIGHTS = 1
 DEFAULT_TOURISM_TYPES = ("hotel", "hostel", "guest_house", "motel", "resort")
 USER_AGENT = "agentcar-hotel-prototype/1.0"
 DEFAULT_OUTPUT_LABEL = "hotel_candidates"
+
+# 高德地图 API 配置
+AMAP_KEY = "772d9db2668f6bfb9c3238702c9b9b9e"
+AMAP_GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
+AMAP_AROUND_URL = "https://restapi.amap.com/v5/place/around"
+AMAP_HOTEL_CATEGORIES = "100000"  # 住宿服务分类代码
+AMAP_SHOW_FIELDS = "business,navi,photos,indoor"
+AMAP_API_PAGE_SIZE = 25
 
 TOURISM_TYPE_LABELS = {
     "hotel": "酒店",
@@ -114,28 +122,29 @@ def parse_stars(raw_value: str | None) -> float | None:
 
 
 def geocode_location(location_text: str) -> tuple[float, float, dict[str, Any]]:
-    params = urlencode(
-        {
-            "q": location_text,
-            "format": "jsonv2",
-            "limit": 1,
-            "addressdetails": 1,
-        }
-    )
-    url = f"https://nominatim.openstreetmap.org/search?{params}"
-    request = Request(url, headers={"User-Agent": USER_AGENT})
+    """使用高德地图 API 进行地理编码"""
+    params = {
+        "key": AMAP_KEY,
+        "address": location_text,
+    }
 
     try:
-        with urlopen(request, timeout=20) as response:
-            results = json.load(response)
-    except (HTTPError, URLError) as exc:
-        raise RuntimeError(f"Failed to geocode location '{location_text}': {exc}") from exc
+        response = requests.get(AMAP_GEOCODE_URL, params=params, timeout=10)
+        result = response.json()
+    except Exception as exc:
+        raise RuntimeError(f"地点解析失败 '{location_text}': {exc}") from exc
 
-    if not results:
-        raise RuntimeError(f"Could not geocode location '{location_text}'")
+    if result.get("status") != "1":
+        raise RuntimeError(f"地点解析失败 '{location_text}': {result.get('info', '未知错误')}")
 
-    best = results[0]
-    return float(best["lat"]), float(best["lon"]), best
+    geocodes = result.get("geocodes", [])
+    if not geocodes:
+        raise RuntimeError(f"未找到地点: {location_text}")
+
+    best = geocodes[0]
+    location_str = best.get("location", "")  # 格式: "经度,纬度"
+    lon_str, lat_str = location_str.split(",")
+    return float(lat_str), float(lon_str), best
 
 
 def normalize_location(location_text: str) -> tuple[float, float, dict[str, Any] | None]:
@@ -160,6 +169,7 @@ def haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> int:
 
 
 def build_overpass_query(lat: float, lon: float, radius: int) -> str:
+    """保留用于 fallback 的查询构建（已废弃，使用高德 API）"""
     tourism_pattern = "|".join(DEFAULT_TOURISM_TYPES)
     return f"""
 [out:json][timeout:25];
@@ -172,21 +182,49 @@ out center tags;
 """.strip()
 
 
-def fetch_osm_hotels(lat: float, lon: float, radius: int) -> list[dict[str, Any]]:
-    query = build_overpass_query(lat, lon, radius)
-    request = Request(
-        "https://overpass-api.de/api/interpreter",
-        data=query.encode("utf-8"),
-        headers={"User-Agent": USER_AGENT},
-    )
+def fetch_amap_hotels(lat: float, lon: float, radius: int, max_results: int) -> list[dict[str, Any]]:
+    """使用高德周边搜索 API 获取酒店数据"""
+    location_str = f"{lon},{lat}"  # 高德格式: 经度,纬度
+    pois: list[dict[str, Any]] = []
+    page_num = 1
+    target = max(1, int(max_results))
 
-    try:
-        with urlopen(request, timeout=40) as response:
-            payload = json.load(response)
-    except (HTTPError, URLError) as exc:
-        raise RuntimeError(f"Failed to query OpenStreetMap hotel data: {exc}") from exc
+    while len(pois) < target:
+        page_size = min(AMAP_API_PAGE_SIZE, target - len(pois))
+        params = {
+            "key": AMAP_KEY,
+            "location": location_str,
+            "radius": radius,
+            "types": AMAP_HOTEL_CATEGORIES,
+            "show_fields": AMAP_SHOW_FIELDS,
+            "page_size": page_size,
+            "page_num": page_num,
+        }
 
-    return payload.get("elements", [])
+        try:
+            response = requests.get(AMAP_AROUND_URL, params=params, timeout=15)
+            result = response.json()
+        except Exception as exc:
+            print(f"高德周边搜索请求异常: {exc}")
+            break
+
+        if result.get("status") != "1":
+            print(f"高德周边搜索失败: {result.get('info', '未知错误')}")
+            break
+
+        current_pois = result.get("pois", [])
+        if not current_pois:
+            break
+
+        pois.extend(current_pois)
+
+        if len(current_pois) < page_size:
+            break
+
+        page_num += 1
+        time.sleep(0.2)
+
+    return pois[:target]
 
 
 def fallback_hotels(lat: float, lon: float, location_text: str, max_results: int) -> list[dict[str, Any]]:
@@ -224,21 +262,59 @@ def fallback_hotels(lat: float, lon: float, location_text: str, max_results: int
 
 
 def extract_point(element: dict[str, Any]) -> tuple[float | None, float | None]:
-    if "lat" in element and "lon" in element:
-        return float(element["lat"]), float(element["lon"])
-    center = element.get("center") or {}
-    if "lat" in center and "lon" in center:
-        return float(center["lat"]), float(center["lon"])
+    """从高德 POI 数据中提取坐标"""
+    location_str = element.get("location", "")
+    if location_str and "," in location_str:
+        parts = location_str.split(",")
+        if len(parts) == 2:
+            try:
+                lon = float(parts[0])
+                lat = float(parts[1])
+                return lat, lon
+            except ValueError:
+                pass
     return None, None
 
 
-def normalize_osm_hotels(
+def _map_tourism_type(typecode: str, type_name: str) -> str:
+    """将高德分类代码映射为酒店类型"""
+    if not typecode:
+        return "hotel"
+    # 高德住宿服务子分类
+    code_map = {
+        "100100": "hotel",      # 星级酒店
+        "100101": "hotel",      # 五星级
+        "100102": "hotel",      # 四星级
+        "100103": "hotel",      # 三星级
+        "100104": "hotel",      # 二星级
+        "100105": "hotel",      # 经济型
+        "100200": "hotel",      # 快捷酒店
+        "100300": "guest_house", # 民宿
+        "100301": "guest_house",
+        "100302": "guest_house",
+        "400000": "motel",      # 汽车旅馆（高德无此分类，保留）
+    }
+    # 尝试精确匹配
+    if typecode in code_map:
+        return code_map[typecode]
+    # 尝试前缀匹配
+    prefix = typecode[:4]
+    if prefix in code_map:
+        return code_map[prefix]
+    prefix = typecode[:3]
+    if prefix in code_map:
+        return code_map[prefix]
+    return "hotel"
+
+
+def normalize_amap_hotels(
     elements: list[dict[str, Any]],
     *,
     center_lat: float,
     center_lon: float,
     max_results: int,
 ) -> list[dict[str, Any]]:
+    """将高德 POI 数据转换为标准化酒店数据"""
     normalized: list[dict[str, Any]] = []
     seen_keys: set[tuple[str, str, int]] = set()
 
@@ -247,42 +323,42 @@ def normalize_osm_hotels(
         if lat is None or lon is None:
             continue
 
-        tags = element.get("tags") or {}
-        name = (tags.get("name") or tags.get("name:en") or "").strip()
+        name = (element.get("name") or "").strip()
         if not name:
             continue
 
-        tourism_type = (tags.get("tourism") or "hotel").strip()
+        business = element.get("business") or {}
+        typecode = element.get("typecode") or ""
+        type_name = element.get("type") or ""
+        tourism_type = _map_tourism_type(typecode, type_name)
+
         distance_m = haversine_meters(center_lat, center_lon, lat, lon)
         unique_key = (name.lower(), tourism_type.lower(), distance_m // 20)
         if unique_key in seen_keys:
             continue
         seen_keys.add(unique_key)
 
+        address_parts = [
+            element.get("pname", ""),
+            element.get("cityname", ""),
+            element.get("adname", ""),
+            element.get("address", ""),
+        ]
+        address = "".join(p for p in address_parts if p)
+
         normalized.append(
             {
-                "osm_id": f"{element.get('type', 'node')}/{element.get('id')}",
+                "osm_id": f"amap/{element.get('id', '')}",
                 "name": name,
                 "tourism_type": tourism_type,
                 "latitude": lat,
                 "longitude": lon,
                 "distance_m": distance_m,
-                "stars": parse_stars(tags.get("stars")),
-                "address": (
-                    tags.get("addr:full")
-                    or ", ".join(
-                        value
-                        for value in (
-                            tags.get("addr:street"),
-                            tags.get("addr:housenumber"),
-                            tags.get("addr:city"),
-                        )
-                        if value
-                    )
-                ),
-                "phone": tags.get("phone") or tags.get("contact:phone") or "",
-                "website": tags.get("website") or tags.get("contact:website") or "",
-                "source_tags": tags,
+                "stars": parse_stars(business.get("tag") or type_name),
+                "address": address,
+                "phone": business.get("tel") or "",
+                "website": "",
+                "source_tags": element,
             }
         )
 
@@ -557,7 +633,7 @@ def enrich_hotels(
                 "price_max_cny": price_max,
                 "room_types": room_types,
                 "source": {
-                    "provider": "OpenStreetMap Overpass API",
+                    "provider": "Amap Place Around API",
                     "osm_id": hotel["osm_id"],
                     "fetched_at": datetime.now(timezone.utc).isoformat(),
                 },
@@ -712,23 +788,23 @@ def build_hotel_dataset(
     nights: int,
 ) -> tuple[list[dict[str, Any]], str]:
     center_lat, center_lon, geocode_info = normalize_location(location_text)
-    location_label = geocode_info.get("display_name", location_text) if geocode_info else location_text
+    location_label = geocode_info.get("formatted_address", location_text) if geocode_info else location_text
     print(f"已解析目的地：{location_label}")
     print(f"中心坐标：{center_lat:.6f}, {center_lon:.6f}")
 
-    raw_hotels = fetch_osm_hotels(center_lat, center_lon, radius)
+    raw_hotels = fetch_amap_hotels(center_lat, center_lon, radius, max_results)
     if not raw_hotels:
-        print("Overpass 没有返回公开酒店数据，已自动回退为附近模拟酒店数据。")
+        print("高德周边搜索未返回酒店数据，已自动回退为附近模拟酒店数据。")
         raw_hotels = fallback_hotels(center_lat, center_lon, location_text, max_results)
 
-    normalized_hotels = normalize_osm_hotels(
+    normalized_hotels = normalize_amap_hotels(
         raw_hotels,
         center_lat=center_lat,
         center_lon=center_lon,
         max_results=max_results,
     )
     if not normalized_hotels:
-        normalized_hotels = normalize_osm_hotels(
+        normalized_hotels = normalize_amap_hotels(
             fallback_hotels(center_lat, center_lon, location_text, max_results),
             center_lat=center_lat,
             center_lon=center_lon,

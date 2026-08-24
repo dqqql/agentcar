@@ -16,9 +16,9 @@ from backend.app.services.ranking import build_ranking_service
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 GETDATA_OUTPUT_ROOT = PROJECT_ROOT / "scripts" / "getdata"
 HOTEL_LOCATION_MAP = {
-    "\u5317\u4eac\u5e02": "Beijing, China",
-    "\u5929\u6d25\u5e02": "Tianjin, China",
-    "\u676d\u5dde\u5e02": "Hangzhou, China",
+    "\u5317\u4eac\u5e02": "\u5317\u4eac",
+    "\u5929\u6d25\u5e02": "\u5929\u6d25",
+    "\u676d\u5dde\u5e02": "\u676d\u5dde",
 }
 
 
