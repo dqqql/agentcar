@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 from collections import Counter
-from typing import Iterable
+from pathlib import Path
+from typing import Callable, Iterable
 
 from backend.app.models.adapter import CandidatePoi
 from backend.app.models.extract import AlgorithmInput
@@ -13,9 +15,46 @@ from backend.app.models.ranking import RankedCandidate, RankingRequest, RankingR
 class RankingService:
     """Deterministic multi-stage ranking while preserving the public service contract."""
 
-    def __init__(self, *, top_k: int = 10, sequence_weight: float = 0.15):
+    def __init__(
+        self,
+        *,
+        top_k: int = 10,
+        sequence_weight: float = 0.15,
+        model_mode: str = "off",
+        model_path: str | Path = "",
+        model_sha256: str = "",
+        model_top_n: int = 20,
+        model_blend_weight: float = 0.5,
+        model_timeout_ms: float = 100.0,
+        checkpoint_loader: Callable[..., object] | None = None,
+    ):
         self.top_k = max(1, int(top_k))
         self.sequence_weight = self._clamp(sequence_weight, 0.0, 1.0)
+        normalized_mode = str(model_mode).strip().lower()
+        self.model_mode = (
+            normalized_mode if normalized_mode in {"off", "shadow", "rerank"} else "off"
+        )
+        self.model_path = model_path
+        self.model_sha256 = model_sha256
+        self.model_top_n = max(1, int(model_top_n))
+        try:
+            blend_weight = float(model_blend_weight)
+        except (TypeError, ValueError):
+            blend_weight = 0.5
+        if not math.isfinite(blend_weight):
+            blend_weight = 0.5
+        self.model_blend_weight = self._clamp(blend_weight, 0.0, 1.0)
+        try:
+            timeout_ms = float(model_timeout_ms)
+        except (TypeError, ValueError):
+            timeout_ms = 100.0
+        self.model_timeout_ms = timeout_ms if math.isfinite(timeout_ms) else 100.0
+        self.model_timeout_ms = max(0.0, self.model_timeout_ms)
+        self.checkpoint_loader = checkpoint_loader
+        self._runtime_lock = threading.Lock()
+        self._checkpoint_load_attempted = False
+        self._checkpoint_result: object | None = None
+        self._learned_reranker: object | None = None
 
     def rank_candidates(self, request: RankingRequest) -> RankingResult:
         candidate_pool = request.candidate_pool
@@ -37,7 +76,7 @@ class RankingService:
             poi_type="hotel",
         )
 
-        return RankingResult(
+        rule_result = RankingResult(
             source_candidate_pool_path=candidate_pool.result_file_path,
             ranked_spot_candidates=ranked_spot_candidates,
             ranked_food_candidates=ranked_food_candidates,
@@ -54,6 +93,161 @@ class RankingService:
                 "sequence_active": self._has_usable_history(algorithm_input),
             },
         )
+        if self.model_mode == "off":
+            return rule_result
+        return self._apply_learned_ranking(rule_result, algorithm_input)
+
+    def _apply_learned_ranking(
+        self, rule_result: RankingResult, algorithm_input: AlgorithmInput
+    ) -> RankingResult:
+        from backend.app.services.ranking.learned.checkpoint import load_learned_checkpoint
+        from backend.app.services.ranking.learned.reranker import LearnedReranker
+
+        with self._runtime_lock:
+            if not self._checkpoint_load_attempted:
+                loader = self.checkpoint_loader or load_learned_checkpoint
+                try:
+                    self._checkpoint_result = loader(
+                        self.model_path, self.model_sha256
+                    )
+                except Exception:
+                    self._checkpoint_result = None
+                self._checkpoint_load_attempted = True
+                loaded_checkpoint = self._checkpoint_result
+                if (
+                    loaded_checkpoint is not None
+                    and getattr(loaded_checkpoint, "loaded", False)
+                    and getattr(loaded_checkpoint, "model", None) is not None
+                    and getattr(loaded_checkpoint, "metadata", None) is not None
+                ):
+                    try:
+                        self._learned_reranker = LearnedReranker(
+                            loaded_checkpoint.model,
+                            loaded_checkpoint.metadata,
+                            timeout_ms=self.model_timeout_ms,
+                        )
+                    except Exception:
+                        self._learned_reranker = None
+            loaded = self._checkpoint_result
+        groups = [
+            rule_result.ranked_spot_candidates,
+            rule_result.ranked_food_candidates,
+            rule_result.ranked_hotel_candidates,
+        ]
+        diagnostics = {
+            "model_mode": self.model_mode,
+            "model_version": getattr(loaded, "version", None),
+            "checkpoint_hash": getattr(loaded, "sha256", None),
+            # Total candidates submitted across the three rule top-N prefixes.
+            "rerank_candidate_count": 0,
+            "fallback_reason": None,
+            "inference_ms": 0.0,
+            "ranking_changed": False,
+        }
+        if loaded is None or not getattr(loaded, "loaded", False):
+            diagnostics["fallback_reason"] = getattr(
+                loaded, "fallback_reason", "loader_error"
+            )
+            rule_result.debug_meta.update(diagnostics)
+            return rule_result
+
+        if (
+            getattr(loaded, "model", None) is None
+            or getattr(loaded, "metadata", None) is None
+        ):
+            diagnostics["fallback_reason"] = "invalid_checkpoint"
+            rule_result.debug_meta.update(diagnostics)
+            return rule_result
+        reranker = self._learned_reranker
+        if not isinstance(reranker, LearnedReranker):
+            diagnostics["fallback_reason"] = "invalid_checkpoint"
+            rule_result.debug_meta.update(diagnostics)
+            return rule_result
+        scored_groups: list[tuple[list[RankedCandidate], list[float]]] = []
+        for group in groups:
+            prefix = group[: min(self.model_top_n, len(group))]
+            scored = reranker.score(prefix, algorithm_input)
+            diagnostics["inference_ms"] += scored.inference_ms
+            diagnostics["rerank_candidate_count"] += len(prefix)
+            if scored.fallback_reason is not None or scored.scores is None:
+                diagnostics["fallback_reason"] = scored.fallback_reason
+                rule_result.debug_meta.update(diagnostics)
+                return rule_result
+            scored_groups.append((group, scored.scores))
+
+        diagnostics["ranking_changed"] = any(
+            self._counterfactual_order(group, scores)
+            != [item.poi_id for item in group]
+            for group, scores in scored_groups
+        )
+
+        # Shadow deliberately returns the exact rule candidate structures.
+        if self.model_mode == "shadow":
+            rule_result.debug_meta.update(diagnostics)
+            return rule_result
+
+        result = rule_result.model_copy(deep=True)
+        output_groups = [
+            result.ranked_spot_candidates,
+            result.ranked_food_candidates,
+            result.ranked_hotel_candidates,
+        ]
+        for (rule_group, learned_scores), output_group in zip(
+            scored_groups, output_groups
+        ):
+            count = len(learned_scores)
+            blended: list[tuple[int, RankedCandidate]] = []
+            for index, (item, learned_score) in enumerate(
+                zip(output_group[:count], learned_scores)
+            ):
+                rule_score = float(rule_group[index].score)
+                final_score = (
+                    (1.0 - self.model_blend_weight) * rule_score
+                    + self.model_blend_weight * learned_score
+                )
+                if not math.isfinite(final_score):
+                    diagnostics["fallback_reason"] = "nonfinite_score"
+                    rule_result.debug_meta.update(diagnostics)
+                    return rule_result
+                item.score_breakdown = {
+                    **item.score_breakdown,
+                    "rule": rule_score,
+                    "learned": learned_score,
+                    "learned_weight": self.model_blend_weight,
+                }
+                item.score = round(final_score, 4)
+                blended.append((index, item))
+            blended.sort(key=lambda pair: (-pair[1].score, pair[0]))
+            output_group[:] = [item for _, item in blended] + output_group[count:]
+            for rank, item in enumerate(output_group, 1):
+                item.rank = rank
+
+        result.debug_meta.update(diagnostics)
+        return result
+
+    def _counterfactual_order(
+        self, rule_group: list[RankedCandidate], learned_scores: list[float]
+    ) -> list[str]:
+        """Return the blended top-N order without mutating rule candidates."""
+
+        prefix = [
+            (
+                index,
+                item.poi_id,
+                round(
+                    (1.0 - self.model_blend_weight) * float(item.score)
+                    + self.model_blend_weight * learned_score,
+                    4,
+                ),
+            )
+            for index, (item, learned_score) in enumerate(
+                zip(rule_group, learned_scores)
+            )
+        ]
+        prefix.sort(key=lambda entry: (-entry[2], entry[0]))
+        return [poi_id for _, poi_id, _ in prefix] + [
+            item.poi_id for item in rule_group[len(learned_scores) :]
+        ]
 
     def _rank_group(
         self,
@@ -336,4 +530,13 @@ class RankingService:
 
 
 def build_ranking_service() -> RankingService:
-    return RankingService()
+    from backend.app.core.config import get_settings
+
+    settings = get_settings()
+    return RankingService(
+        model_mode=settings.ranking_model_mode,
+        model_path=settings.ranking_model_path,
+        model_sha256=settings.ranking_model_sha256,
+        model_top_n=settings.ranking_model_top_n,
+        model_blend_weight=settings.ranking_model_blend_weight,
+    )
