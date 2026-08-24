@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,53 @@ from backend.app.services.ranking.learned.checkpoint import (
     load_learned_checkpoint,
 )
 from backend.app.services.ranking.learned.model import LearnedRankingModel
+from tests.deserialization_ast import find_unsafe_deserialization_calls
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _active_python_paths(project_root: Path = PROJECT_ROOT) -> list[Path]:
+    return sorted(
+        path
+        for relative_root in ("backend", "scripts")
+        for path in (project_root / relative_root).rglob("*.py")
+        if path.is_file()
+    )
+
+
+def test_active_python_has_one_centralized_safe_deserialization_entry() -> None:
+    """Keep model deserialization centralized as backend and scripts evolve."""
+
+    findings = []
+    for source_path in _active_python_paths():
+        relative_path = source_path.relative_to(PROJECT_ROOT).as_posix()
+        findings.extend(
+            find_unsafe_deserialization_calls(
+                source_path.read_text(encoding="utf-8"), relative_path
+            )
+        )
+
+    assert [
+        (finding.path, finding.function, finding.qualified_name)
+        for finding in findings
+    ] == [
+        (
+            "backend/app/services/ranking/learned/checkpoint.py",
+            "_safe_torch_load",
+            "torch.load",
+        )
+    ]
+
+
+def test_active_python_scan_is_independent_of_working_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = _active_python_paths()
+
+    monkeypatch.chdir(PROJECT_ROOT.parent)
+
+    assert _active_python_paths() == expected
+    assert all(path.is_absolute() for path in expected)
 
 
 def _metadata(**updates: object) -> dict[str, object]:
@@ -71,14 +119,17 @@ def test_deserialization_is_weights_only_and_cpu(
     path = tmp_path / "reranker.pt"
     digest = _write_checkpoint(path)
     real_load = torch.load
+    sources: list[object] = []
     calls: list[dict[str, object]] = []
 
     def recording_load(*args: object, **kwargs: object) -> object:
+        sources.extend(args)
         calls.append(kwargs)
         return real_load(*args, **kwargs)
 
     monkeypatch.setattr(torch, "load", recording_load)
     assert load_learned_checkpoint(path, digest).loaded
+    assert len(sources) == 1 and isinstance(sources[0], io.BytesIO)
     assert calls == [{"map_location": "cpu", "weights_only": True}]
 
 

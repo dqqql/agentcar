@@ -151,8 +151,11 @@ def loaded(model: torch.nn.Module) -> CheckpointLoadResult:
 
 
 def test_off_is_exact_rule_behavior_and_never_calls_loader() -> None:
-    request = request_for([candidate("a", tags=[]), candidate("b", tags=[])])
-    baseline = RankingService().rank_candidates(request.model_copy(deep=True))
+    baseline_request = request_for(
+        [candidate("a", tags=[]), candidate("b", tags=[])]
+    )
+    off_request = request_for([candidate("a", tags=[]), candidate("b", tags=[])])
+    baseline = RankingService().rank_candidates(baseline_request)
     called = False
 
     def loader(*args):
@@ -161,19 +164,40 @@ def test_off_is_exact_rule_behavior_and_never_calls_loader() -> None:
         raise AssertionError
 
     result = RankingService(model_mode="off", checkpoint_loader=loader).rank_candidates(
-        request.model_copy(deep=True)
+        off_request
     )
     assert result.model_dump() == baseline.model_dump()
+    assert off_request.model_dump() == baseline_request.model_dump()
     assert called is False
 
 
 def test_shadow_runs_model_but_only_adds_diagnostics() -> None:
-    request = request_for([candidate("a", tags=[]), candidate("b", tags=[])])
-    baseline = RankingService().rank_candidates(request.model_copy(deep=True))
+    baseline_request = request_for(
+        [candidate("a", tags=[]), candidate("b", tags=[])]
+    )
+    shadow_request = request_for(
+        [candidate("a", tags=[]), candidate("b", tags=[])]
+    )
+    baseline = RankingService().rank_candidates(baseline_request)
     result = RankingService(
         model_mode="shadow", checkpoint_loader=lambda *_: loaded(StubModel([[0, 1]]))
-    ).rank_candidates(request.model_copy(deep=True))
-    assert result.ranked_spot_candidates == baseline.ranked_spot_candidates
+    ).rank_candidates(shadow_request)
+    baseline_payload = baseline.model_dump()
+    shadow_payload = result.model_dump()
+    baseline_debug = baseline_payload.pop("debug_meta")
+    shadow_debug = shadow_payload.pop("debug_meta")
+    assert shadow_payload == baseline_payload
+    assert shadow_request.model_dump() == baseline_request.model_dump()
+    assert {key: shadow_debug[key] for key in baseline_debug} == baseline_debug
+    assert set(shadow_debug) - set(baseline_debug) == {
+        "model_mode",
+        "model_version",
+        "checkpoint_hash",
+        "rerank_candidate_count",
+        "fallback_reason",
+        "inference_ms",
+        "ranking_changed",
+    }
     assert result.debug_meta["model_mode"] == "shadow"
     assert result.debug_meta["ranking_changed"] is True
     assert result.debug_meta["rerank_candidate_count"] == 2
