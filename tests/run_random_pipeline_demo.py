@@ -25,9 +25,9 @@ TEST_OUTPUT_DIR = PROJECT_ROOT / "tests" / "output"
 GETDATA_OUTPUT_ROOT = PROJECT_ROOT / "scripts" / "getdata"
 DEFAULT_SEED = None
 HOTEL_LOCATION_MAP = {
-    "北京市": "Beijing, China",
-    "天津市": "Tianjin, China",
-    "杭州市": "Hangzhou, China",
+    "北京市": "北京",
+    "天津市": "天津",
+    "杭州市": "杭州",
 }
 
 
@@ -201,7 +201,6 @@ def build_hotel_inputs(destination: str) -> list[str]:
         "20",
         check_in_date.isoformat(),
         "1",
-        "pipeline_demo",
     ]
 
 

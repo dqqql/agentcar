@@ -99,7 +99,7 @@ class PipelineService:
     def build_hotel_inputs(self, destination: str) -> list[str]:
         check_in_date = date.today() + timedelta(days=7)
         hotel_location = HOTEL_LOCATION_MAP.get(destination, destination)
-        return [hotel_location, "4000", "20", check_in_date.isoformat(), "1", "pipeline_api"]
+        return [hotel_location, "4000", "20", check_in_date.isoformat(), "1"]
 
     def build_place_inputs(self, destination: str, spot_keyword: str) -> list[str]:
         return [destination, spot_keyword]

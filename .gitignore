@@ -6,6 +6,9 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 
 # Virtual environments
 .venv/
@@ -22,6 +25,9 @@ Thumbs.db
 
 # Logs
 *.log
+.dev-runtime/
+/output/
+backend/.tmp/
 
 # Local env
 .env
@@ -38,6 +44,8 @@ doc/*
 !doc/
 !doc/开发目标与进度.md
 !doc/流程图版开发进度.md
+!doc/deliverables/
+!doc/deliverables/**
 
 # Generated data assets under scripts/getdata
 scripts/getdata/**/__pycache__/

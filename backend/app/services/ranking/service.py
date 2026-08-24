@@ -396,6 +396,8 @@ class POIRecommendationService:
                 item.candidate.center_distance_m is None,
                 item.candidate.center_distance_m if item.candidate.center_distance_m else 10**9,
                 -(item.candidate.rating or 0),
+                item.candidate.name,
+                item.poi_id,
             )
         )
         for index, item in enumerate(ranked, start=1):
