@@ -69,3 +69,6 @@ data/candidate_pool/*
 tests/__pycache__/
 tests/output/*
 !tests/output/.gitkeep
+doc/deliverables/20260825/20260825-导师汇报-阶段进展报告.md
+.gitignore
+SYNC_GITEE_TO_GITHUB.md

@@ -1,0 +1,22 @@
+<svg width="360" height="230" viewBox="0 0 360 230" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="mist" x1="180" y1="34" x2="180" y2="184" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBF9"/>
+      <stop offset="1" stop-color="#EDF4EF"/>
+    </linearGradient>
+    <linearGradient id="road" x1="143" y1="133" x2="183" y2="222" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A8BFAF"/>
+      <stop offset="1" stop-color="#D8E4DC"/>
+    </linearGradient>
+  </defs>
+  <path d="M72 72C88 52 101 46 116 62C127 43 144 35 161 52C174 67 186 58 198 68H72Z" fill="#F1F6F2"/>
+  <path d="M214 58C228 39 242 38 253 52C264 31 285 29 298 50C305 50 311 53 316 58H214Z" fill="#F2F7F3"/>
+  <path d="M14 151L88 81L128 124L183 58L269 151H14Z" fill="url(#mist)"/>
+  <path d="M93 151L169 90L208 127L245 98L324 151H93Z" fill="#E8F0EA"/>
+  <path d="M0 151C52 140 92 145 128 151C168 158 223 161 360 146V190H0V151Z" fill="#F5F8F6"/>
+  <path d="M164 229C157 203 114 195 91 183C54 164 78 150 132 147C168 145 190 142 205 132" stroke="url(#road)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M205 130C199 123 195 117 195 111C195 101 202 95 211 95C220 95 227 101 227 111C227 120 217 130 211 138C209 140 207 134 205 130Z" fill="#9DB5A5"/>
+  <circle cx="211" cy="110" r="4" fill="#F6FAF7"/>
+  <path d="M42 62C48 57 54 57 60 62C66 57 72 57 78 62" stroke="#CFDDD3" stroke-width="2" stroke-linecap="round"/>
+  <path d="M269 81C274 77 279 77 284 81C289 77 294 77 299 81" stroke="#D5E1D9" stroke-width="2" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,50 @@
+<svg width="360" height="230" viewBox="0 0 360 230" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="mapLeft" x1="77" y1="82" x2="142" y2="184" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7FBF9"/>
+      <stop offset="1" stop-color="#EAF3EE"/>
+    </linearGradient>
+    <linearGradient id="mapCenter" x1="176" y1="69" x2="182" y2="186" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EEF6F2"/>
+      <stop offset="1" stop-color="#DDECE5"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="230" y1="58" x2="230" y2="111" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3E8D80"/>
+      <stop offset="1" stop-color="#76AA9F"/>
+    </linearGradient>
+    <filter id="shadow" x="55" y="66" width="250" height="139" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#326F64" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <g opacity="0.7">
+    <circle cx="53" cy="58" r="3" fill="#C9DED6"/>
+    <circle cx="306" cy="73" r="3" fill="#C9DED6"/>
+    <path d="M40 87H72" stroke="#DCEAE4" stroke-width="2" stroke-linecap="round"/>
+    <path d="M289 105H321" stroke="#DCEAE4" stroke-width="2" stroke-linecap="round"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <path d="M70 94L137 76L181 91L231 72L290 92V177L231 159L181 178L137 161L70 181V94Z" fill="white"/>
+    <path d="M70 94L137 76V161L70 181V94Z" fill="url(#mapLeft)"/>
+    <path d="M137 76L181 91V178L137 161V76Z" fill="url(#mapCenter)"/>
+    <path d="M181 91L231 72V159L181 178V91Z" fill="#F8FBF9"/>
+    <path d="M231 72L290 92V177L231 159V72Z" fill="#E9F3EF"/>
+    <path d="M137 76V161M181 91V178M231 72V159" stroke="#D1E3DC" stroke-width="1.5"/>
+    <path d="M70 94L137 76L181 91L231 72L290 92" stroke="#C3DAD2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <path d="M102 137C115 119 137 119 151 133C166 148 183 151 198 138C212 126 211 112 223 104" stroke="#5C9B90" stroke-width="3" stroke-linecap="round" stroke-dasharray="5 8"/>
+  <circle cx="101" cy="138" r="7" fill="#F8FBF9" stroke="#76AA9F" stroke-width="3"/>
+  <circle cx="101" cy="138" r="2" fill="#3E8D80"/>
+
+  <path d="M230 55C214 55 202 67 202 83C202 103 226 126 230 130C234 126 258 103 258 83C258 67 246 55 230 55Z" fill="url(#pin)"/>
+  <circle cx="230" cy="82" r="11" fill="#F7FBF9"/>
+  <circle cx="230" cy="82" r="4" fill="#3E8D80"/>
+
+  <g transform="translate(276 45)">
+    <circle cx="0" cy="0" r="17" fill="#F3F8F6" stroke="#D9E8E2"/>
+    <path d="M5 -7L2 3L-7 7L-3 -3L5 -7Z" fill="#78AA9F"/>
+    <circle cx="0" cy="0" r="2" fill="#F8FBF9"/>
+  </g>
+</svg>
